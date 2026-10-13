@@ -50,7 +50,7 @@ export const programs = {
   duplicate: 'Dupliquer',
   duplicated: 'Programme dupliqué.',
   duplicateError: 'Impossible de dupliquer le programme.',
-  copyName: '{name} (copie)',
+  copySuffix: '(copie)',
   templateCreated: 'Programme créé depuis le modèle.',
   templateUse: 'Utiliser ce modèle',
   dayCount: '{count, plural, one {# jour} other {# jours}}',
@@ -76,7 +76,7 @@ export const programs = {
     duplicate: 'Dupliquer',
     duplicated: 'Séance dupliquée.',
     duplicateError: 'Impossible de dupliquer la séance.',
-    copyName: '{name} (copie)',
+    copySuffix: '(copie)',
   },
   exercise: {
     actions: 'Actions de l’exercice',

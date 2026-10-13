@@ -50,7 +50,7 @@ export const programs = {
   duplicate: 'Дублировать',
   duplicated: 'Программа продублирована.',
   duplicateError: 'Не удалось продублировать программу.',
-  copyName: '{name} (копия)',
+  copySuffix: '(копия)',
   templateCreated: 'Программа создана из шаблона.',
   templateUse: 'Использовать шаблон',
   dayCount: '{count, plural, one {# день} few {# дня} many {# дней} other {# дня}}',
@@ -76,7 +76,7 @@ export const programs = {
     duplicate: 'Дублировать',
     duplicated: 'Тренировка продублирована.',
     duplicateError: 'Не удалось продублировать тренировку.',
-    copyName: '{name} (копия)',
+    copySuffix: '(копия)',
   },
   exercise: {
     actions: 'Действия с упражнением',

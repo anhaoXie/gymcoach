@@ -14,11 +14,15 @@ export function programExerciseCopyData(
   return rest;
 }
 
-// A copy's default name when the client sends none (the UI always sends a
-// localized one).
-export function copyName(name: string): string {
-  const suffix = ' (copy)';
-  return `${name.slice(0, 120 - suffix.length)}${suffix}`;
+export const MAX_COPY_NAME_LENGTH = 120;
+
+// A copy's name: the source's STORED name (never its display translation, see
+// i18n/training-names.ts) plus a suffix, cut so the whole fits the 120-char
+// name limit. The UI passes its localized suffix; the server falls back to the
+// English one when the client sends no name.
+export function copyName(name: string, suffix = '(copy)'): string {
+  const tail = ` ${suffix}`;
+  return `${name.slice(0, MAX_COPY_NAME_LENGTH - tail.length).trimEnd()}${tail}`;
 }
 
 // --- Save a finished session as a workout -----------------------------------
@@ -99,7 +103,8 @@ export function workoutRowsFromSession(
     const reps = list.map((s) => s.reps);
     const rirs = list.map((s) => s.rir).filter((r): r is number => r != null);
     const source = sourceByExercise.get(exerciseId);
-    // Cardio sets log 0 reps; a programmed row needs at least 1.
+    // Cardio sets log reps = 1 by convention (lib/cardio.ts); the clamp keeps
+    // any row at 1 to 50 reps whatever was logged.
     const repsMin = clamp(Math.min(...reps), 1, 50);
     const repsMax = clamp(Math.max(...reps), repsMin, 50);
     rows.push({

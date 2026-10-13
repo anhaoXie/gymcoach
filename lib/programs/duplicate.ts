@@ -29,7 +29,8 @@ export async function duplicateProgram(userId: string, programId: string, name: 
         name,
         phase: source.phase,
         description: source.description,
-        endDate: source.endDate,
+        // The copy starts now, so the source's end date would no longer fit.
+        endDate: null,
         isActive: false,
       },
     });

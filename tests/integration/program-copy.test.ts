@@ -48,6 +48,7 @@ async function seed(email: string) {
       phase: 'Strength',
       description: 'Four days',
       isActive: true,
+      endDate: new Date('2020-03-01T00:00:00Z'),
     },
   });
   const day1 = await db.workout.create({
@@ -136,6 +137,8 @@ describe('POST /api/programs/[id]/duplicate (issue #394)', () => {
       phase: 'Strength',
       description: 'Four days',
       isActive: false,
+      // The copy starts now, so the source's past end date is not carried.
+      endDate: null,
     });
     expect(persisted.workouts.map((w) => [w.name, w.dayOfWeek, w.order])).toEqual([
       ['Day 1', 1, 1],
@@ -149,16 +152,20 @@ describe('POST /api/programs/[id]/duplicate (issue #394)', () => {
     });
     expect(await db.programExercise.count({ where: { workoutId: day1.id } })).toBe(3);
 
-    // Independent: editing the copy leaves the source alone.
+    // Independent: editing the copy (every row to 1 set) leaves the source's
+    // rows exactly as seeded, in order.
     await db.programExercise.updateMany({
       where: { workoutId: persisted.workouts[0]!.id },
       data: { targetSets: 1 },
     });
     expect(
-      (await db.programExercise.findMany({ where: { workoutId: day1.id } })).map(
-        (pe) => pe.targetSets,
-      ),
-    ).toEqual(expect.arrayContaining([3, 5, 5]));
+      (
+        await db.programExercise.findMany({
+          where: { workoutId: day1.id },
+          orderBy: { order: 'asc' },
+        })
+      ).map((pe) => pe.targetSets),
+    ).toEqual([3, 5, 5]);
   });
 
   it('falls back to a default copy name', async () => {

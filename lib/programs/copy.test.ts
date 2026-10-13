@@ -48,6 +48,13 @@ describe('copyName', () => {
     expect(long).toHaveLength(120);
     expect(long.endsWith(' (copy)')).toBe(true);
   });
+
+  it('uses the given localized suffix and still fits the limit', () => {
+    expect(copyName('Upper', '(copie)')).toBe('Upper (copie)');
+    const long = copyName(`${'y'.repeat(115)} tail`, '(копия)');
+    expect(long.length).toBeLessThanOrEqual(120);
+    expect(long.endsWith(' (копия)')).toBe(true);
+  });
 });
 
 function set(overrides: Partial<SessionSetForWorkout>): SessionSetForWorkout {
@@ -117,7 +124,8 @@ describe('workoutRowsFromSession (issue #394)', () => {
 
   it('defaults the RIR when none was logged and keeps a cardio row valid', () => {
     const [row] = workoutRowsFromSession(
-      [set({ exerciseId: 'bike', reps: 0, rir: null })],
+      // A cardio set logs reps = 1 by convention (lib/cardio.ts).
+      [set({ exerciseId: 'bike', reps: 1, rir: null })],
       new Map([['bike', 5]]),
       [],
     );

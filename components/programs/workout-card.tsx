@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useTranslations } from 'next-intl';
 import { Copy, MoreHorizontal, Plus, Pencil, Printer, Trash2 } from 'lucide-react';
@@ -21,6 +21,7 @@ import { WorkoutFormDialog } from '@/components/programs/workout-form-dialog';
 import { ProgramExerciseFormDialog } from '@/components/programs/program-exercise-form-dialog';
 import { buildSupersetView, smallestFreeGroup } from '@/lib/supersets';
 import { workoutExerciseChoices } from '@/lib/programs/exercise-choices';
+import { copyName } from '@/lib/programs/copy';
 import { useTrainingName } from '@/components/shared/use-training-name';
 
 const DAY_KEYS = [
@@ -51,6 +52,7 @@ export function WorkoutCard({ workout, catalog }: Props) {
   const [editOpen, setEditOpen] = useState(false);
   const [addExoOpen, setAddExoOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const duplicatingRef = useRef(false);
 
   async function handleDelete() {
     if (!confirm(t('deleteConfirm', { name: trainingName(workout.name) }))) return;
@@ -71,10 +73,21 @@ export function WorkoutCard({ workout, catalog }: Props) {
   // Duplicate (issue #394): copies the workout and every programmed exercise,
   // repeats included, into the same program.
   async function handleDuplicate() {
+    // Ignore a second select while the first copy is in flight.
+    if (duplicatingRef.current) return;
+    duplicatingRef.current = true;
+    try {
+      await duplicateWorkout();
+    } finally {
+      duplicatingRef.current = false;
+    }
+  }
+
+  async function duplicateWorkout() {
     const res = await fetch(`/api/workouts/${workout.id}/duplicate`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: t('copyName', { name: trainingName(workout.name) }) }),
+      body: JSON.stringify({ name: copyName(workout.name, t('copySuffix')) }),
     }).catch(() => null);
     if (!res?.ok) {
       toast.error(t('duplicateError'));

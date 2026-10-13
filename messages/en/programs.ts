@@ -45,7 +45,7 @@ export const programs = {
   duplicate: 'Duplicate',
   duplicated: 'Program duplicated.',
   duplicateError: 'Could not duplicate the program.',
-  copyName: '{name} (copy)',
+  copySuffix: '(copy)',
   templateCreated: 'Program created from template.',
   templateUse: 'Use this template',
   dayCount: '{count, plural, one {# day} other {# days}}',
@@ -71,7 +71,7 @@ export const programs = {
     duplicate: 'Duplicate',
     duplicated: 'Session duplicated.',
     duplicateError: 'Could not duplicate the session.',
-    copyName: '{name} (copy)',
+    copySuffix: '(copy)',
   },
   exercise: {
     actions: 'Exercise actions',

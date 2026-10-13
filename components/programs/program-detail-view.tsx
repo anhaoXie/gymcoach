@@ -11,6 +11,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { ProgramEditDialog } from '@/components/programs/program-edit-dialog';
+import { copyName } from '@/lib/programs/copy';
 import { ProgramDeleteButton } from '@/components/programs/program-delete-button';
 import { WorkoutCard } from '@/components/programs/workout-card';
 import { WorkoutFormDialog } from '@/components/programs/workout-form-dialog';
@@ -43,7 +44,7 @@ export function ProgramDetailView({ program, catalog }: Props) {
       const res = await fetch(`/api/programs/${program.id}/duplicate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: t('copyName', { name: trainingName(program.name) }) }),
+        body: JSON.stringify({ name: copyName(program.name, t('copySuffix')) }),
       }).catch(() => null);
       if (!res?.ok) {
         toast.error(t('duplicateError'));
