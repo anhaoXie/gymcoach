@@ -89,17 +89,27 @@ lifters find it.**
 
 ## This repo largely maintains itself
 
-GymCoach is also an experiment in autonomous software maintenance: most of its
-ongoing changes are made by Claude Code running in **documented loops**, not by a
-human typing each one. An agent picks an open issue, writes the change to the repo
-conventions, makes it pass a green-gate (lint + typecheck + tests + build), has an
-independent agent adversarially review the diff, opens a pull request, and
-auto-merges it once CI is green. A human still owns the vision and the hard calls.
+GymCoach is also an experiment in **autonomous software development**. Claude Code
+agents maintain a real application through documented loops: select an issue,
+implement it on a branch, run the checks, open a PR, review it independently, and
+merge eligible changes after green CI. A human owns the product direction and the
+decisions reserved by the [autonomy charter](docs/loops/07-autonomy.md).
 
-The whole playbook is open and reproducible in [`docs/loops/`](docs/loops/): the
-pipeline (triage -> implement -> ship -> write-up), the guardrails, and the
-[autonomy charter](docs/loops/07-autonomy.md) the agent runs inside. If you care
-more about _how a repo can maintain itself_ than about the gym app, start there.
+The feedback comes from running software: unit and integration tests, Playwright
+E2E tests, a production Docker smoke test, and independent reviews. Runs leave a
+public journal; recurring mistakes become lessons and changes to the procedures.
+The AI coach inside the app and the agents developing the repository are separate
+systems. Self-hosting GymCoach does not start a development agent.
+
+**Next experiment:** measure whether the maintainer itself improves. The roadmap
+covers durable execution, enforced budgets, replayable development tasks, and
+evaluated changes to the agent's skills. These are planned capabilities, not a
+claim that the agent already improves itself reliably.
+
+[**How autonomous development works**](docs/loops/README.md) ·
+[Implementation roadmap](docs/loops/11-autonomous-development-roadmap.md) ·
+[Run journal](docs/loops/autonomy-log.md) ·
+[Lessons from failures](docs/loops/lessons.md)
 
 ## Features
 

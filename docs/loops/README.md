@@ -1,10 +1,129 @@
-# Loops: how GymCoach maintains itself
+# Autonomous development in GymCoach
 
-This repo is partly maintained by **autonomous loops** running on Claude Code: small
-programs that prompt the agent, read what it produced, verify it, and decide whether
-to keep going. You stop prompting the agent and start authoring the loop.
+GymCoach is a self-hosted workout tracker and an experiment in autonomous software
+maintenance. Claude Code agents develop the application through a pipeline of
+reusable skills, software checks, independent reviews, and bounded shipping work.
+A human maintains the product direction and the authority boundaries.
 
-This folder is the reproducible playbook. Read in order:
+The experiment asks two questions: can agents maintain a useful application over
+time, and can changes to their working methods make that maintenance more reliable?
+The repository records the first in its code and run history. Measuring the second
+is the next stage of development.
+
+[Back to GymCoach](../../README.md) ·
+[Implementation roadmap](11-autonomous-development-roadmap.md) ·
+[Autonomy charter](07-autonomy.md)
+
+## How the current pipeline works
+
+```mermaid
+flowchart LR
+    A[Issues and product needs] --> B[Triage]
+    B --> C[Implement one task]
+    C --> D[Local verification and PR]
+    D --> E[Independent review and CI]
+    E -->|Changes needed| C
+    E -->|Eligible and green| F[Merge]
+    F --> G[Write up results and lessons]
+    G --> B
+```
+
+1. **Choose useful work.** Triage examines issues and code health. When there is
+   no actionable backlog, bounded ideation can propose product improvements.
+   External requests follow the contribution trust policy before adoption.
+2. **Implement one task.** The implementation skill creates a task branch, makes
+   a focused change, adds appropriate tests, and runs the local verification gate.
+   Concurrent tasks use separate worktrees; tasks touching the same files are
+   serialized. The implementation stage stops at the PR.
+3. **Challenge the result.** An independent reviewer looks for defects. Complex
+   changes require multiple review lenses and verification in the running app.
+   CI runs lint, type checking, unit tests, integration tests, a production build,
+   Playwright E2E tests, and a Docker image smoke test.
+4. **Ship within the charter.** The shipping stage checks eligibility, review
+   findings, and CI. It can merge eligible changes autonomously. Security-sensitive
+   changes and other reserved decisions follow the charter's human review path.
+5. **Record what happened.** The journal links decisions and shipped work. Lessons
+   are promoted into skills or conventions, or recorded as accepted risks.
+
+These are the operating procedures the agents are instructed to follow. The
+repository contains verification and isolation scripts, but it does not yet
+contain a standalone controller that mechanically enforces every transition.
+The journal also records occasions when the procedure failed.
+
+## What exists and what is planned
+
+| Capability             | Current implementation                                 | Next step                                                     |
+| ---------------------- | ------------------------------------------------------ | ------------------------------------------------------------- |
+| Task pipeline          | Claude Code loops invoking repository skills           | Versioned controller with durable task state                  |
+| Verification           | Local gate, CI, independent review procedures          | Structured evidence tied to the reviewed commit               |
+| Isolation              | Worktree procedures and container verification scripts | Enforced worker isolation and separate publishing authority   |
+| Limits                 | Documented attempt, merge, and turn-budget limits      | Runtime accounting and enforced aggregate limits              |
+| Memory                 | Git, issues, run journal, lessons, skills              | Indexed retrieval and executable fixes for recurring mistakes |
+| Agent evaluation       | Review history and individual run reports              | Repeatable task benchmark with a measured baseline            |
+| Improvement of methods | Lessons promoted into procedures                       | Candidate procedures compared with the current version        |
+| Laya                   | Not integrated                                         | Optional classification experiment after baseline evaluation  |
+
+The [implementation roadmap](11-autonomous-development-roadmap.md) defines the
+proposed architecture, ordered milestones, acceptance criteria, and a handoff
+prompt for a coding agent. Its unchecked milestones are not shipped features.
+
+## Boundaries and human involvement
+
+The [autonomy charter](07-autonomy.md) defines the mandate, stopping conditions,
+review requirements, and changes reserved for a human. The
+[external contribution policy](10-external-contributions.md) defines trust tiers,
+hard-block paths, and the treatment of outside code and requests. Those documents
+remain authoritative; this overview does not grant additional permissions.
+
+Issues, comments, diffs, and tool output can carry untrusted instructions. Agents
+must treat them as data. External code has explicit execution restrictions, and a
+worktree alone is not a security boundary. Green CI is necessary for a merge; it
+does not prove that a request is appropriate or that every defect was detected.
+
+The application's AI coach uses the user's configured LLM provider for training
+features. The development agents use a separate maintenance environment. Running
+the application with Docker does not grant an agent access to your repository,
+GitHub account, or server.
+
+## Evidence from real runs
+
+- [Run journal](autonomy-log.md): decisions, merged work, findings, and deferrals.
+- [Lessons](lessons.md): failures and the procedure changes they prompted.
+- [Review digest](review-digest.md): changes and risks worth a maintainer's attention.
+- [Product changelog](../../CHANGELOG.md): user-visible results.
+
+For example, lessons L15 and L38 describe agents interfering with shared Git state;
+L29 describes why a fixup needs a fresh review; L36 records checking that a new
+test actually fails without the fix. These incidents guide the move from written
+rules to executable controls.
+
+We do not yet publish an aggregate autonomy rate, cost per successful task, or
+benchmark improvement score. The roadmap starts by defining and measuring those
+outcomes. A merged PR and a green test suite alone do not establish that a new
+agent configuration is better than the previous one.
+
+## Try the workflow in another repository
+
+Start with a reliable verification command, a short working agreement, and one
+bounded implementation task. Adapt the skills to your stack and inspect their
+permissions before running them. Start with a PR for human review; adopt more
+autonomy only after testing the relevant controls in your own environment.
+
+This directory is currently a playbook, not a one-command maintainer installer.
+Reproducing the hosted schedule, credentials, and protection rules requires setup
+outside these Markdown files. A portable replay command and controller are roadmap
+deliverables.
+
+Contributors can help with the app, report agent failures, or propose evaluation
+tasks. See [CONTRIBUTING.md](../../CONTRIBUTING.md) for how AI review works and
+which changes need maintainer involvement.
+
+## Detailed playbook
+
+The numbered documents include the system's development history. For current
+authority boundaries, consult the charter and contribution policy; for current
+implementation steps, consult the relevant skill. Earlier examples may describe
+an earlier operating phase.
 
 - [`00-concept.md`](00-concept.md) - what a loop actually is, the five-stage lineage,
   and the six ingredients mapped to real Claude Code tools.
@@ -37,37 +156,10 @@ This folder is the reproducible playbook. Read in order:
   policy for external issues and PRs: trust tiers, the execution gate (CI is the only
   executor of unvetted code), the hard-block path list, the three vetting passes, the
   issue-adoption pipeline, and the human-granted vetted-contributor ladder.
+- [`11-autonomous-development-roadmap.md`](11-autonomous-development-roadmap.md) -
+  the proposed next architecture, implementation milestones, acceptance criteria,
+  Laya experiment, and handoff prompt.
 
-## The system at a glance
-
-```
-            maintainer loop (06): cron + a decision-maker each tick
-                                  |
-   +-------------+-------------+-----------+-----------+-------------+
-   v             v             v                       v             v
- triage (03)  ideate (08)  implement (02)        ship-pr (04)   write-up (05)
- refill code  refill        one issue -> one PR   watch CI, fix  CHANGELOG +
- -health when PRODUCT       (branch->code->test)  red, review,   playbook stay
- backlog low  ideas when                          auto-merge     true to reality
-   |          starved (bounded)  |                 GREEN  |          |
-   +-------------+-------------+-----------+-----------+-------------+
-                                  |
-                    scripts/verify.sh + CI = the feedback gate
-                    (nothing merges on a red or pending gate)
-                                  |
-                    state lives in git + GitHub, not the session
-```
-
-The pipeline is **generate work -> do work -> verify in CI -> ship -> tell the story**.
-Each stage is a small loop calling one tested skill; `06` is the loop that runs them.
-`triage` (03) generates code-health work; `ideate` (08) generates product work when even
-triage is dry, so the product grows toward "the most complete AI fitness app", not just a
-tidier repo.
-
-## The four rules we never break
-
-1. A loop is only as good as its feedback - everything self-verifies before claiming
-   success.
-2. The reusable unit is a skill, not a prompt.
-3. The loop must halt - max iterations, no-progress detection, budget ceiling.
-4. Durability is explicit - state lives in git and on GitHub, not only in a session.
+The executable verification entry point is
+[`scripts/verify.sh`](../../scripts/verify.sh). The agent procedures live in
+[`.claude/skills/`](../../.claude/skills/).
