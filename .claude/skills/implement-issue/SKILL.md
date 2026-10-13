@@ -58,6 +58,13 @@ for repo conventions; this skill assumes them.
 
 4. **Test.** Add or update tests for the change (unit/component colocated as
    `*.test.ts`; integration in `tests/`). A behavior change with no test is not done.
+   **A new API route with a `[param]` segment** (or one that takes another resource's id in
+   its body) must be registered in the ownership coverage ratchet in the same PR: either a
+   cross-user case in `tests/integration/route-ownership.test.ts`, or an entry in
+   `COVERED_ELSEWHERE` of `tests/integration/route-ownership-coverage.test.ts` pointing at
+   the suite that holds its cross-user test. The ratchet runs in the integration tier, so
+   the default `verify.sh` does not catch a missing entry; CI does, one cycle later (#436,
+   lesson L40).
 
 5. **Green-gate (self-verify).** Run `bash scripts/verify.sh`. (In a fresh checkout or git
    worktree, first `npm ci` - worktrees do not share `node_modules` - then `npm rebuild

@@ -799,3 +799,47 @@ now in `ship-pr` and `06-orchestration.md`; worth a glance that it reads the way
 
 **Trust the gate (lower risk):** the bodyweight card UI and its i18n strings, the editor's
 exercise filter, the CHANGELOG and README lines.
+
+## 2026-10-13 - MCP error mapping, favourite exercises, duplicate and save as workout, and the hard-block split
+
+Merged: **#432** (@Retsumdk, vetted, `lib/mcp/**`: one guard maps Prisma errors for every MCP
+tool; merged by the loop on your in-session instruction), **#434** (the remaining Prisma
+error classes), **#435** (favourite exercises, with a migration), **#436** (duplicate a
+program or a workout, save a finished session as a workout). In this PR: your 2026-10-13
+extension of the delegation, written into the trust policy, and `"root": true` in
+`.eslintrc.json`.
+
+**Read first:**
+
+1. **This PR's policy edit.** `docs/loops/10-external-contributions.md` ("Extension
+   2026-10-13" at the top, then "Hard-block paths" split into group A and group B, pass 1 and
+   "Outcomes by tier"), plus the aligned lines in `CLAUDE.md`, `07-autonomy.md`,
+   `CONTRIBUTING.md` and `.claude/skills/ship-pr/SKILL.md`. Check the group boundaries are the
+   ones you meant: group A (auth, MCP, `lib/api.ts`, rate limit, MCP tokens, bulk-data
+   routes, LLM and prompts, Prisma schema and migrations, locale modules) is loop-mergeable
+   with both security lenses clean and a rollback tag first; group B (CI, scripts,
+   `.claude/`, the charter, container, ignore and env files, `middleware.ts`, manifests,
+   executable configs, `.coderabbit.yaml`) stays yours to merge. Two choices the loop made
+   that you may want to reverse: external code touching either group is never run locally,
+   container included; and an adopted external issue whose implementation touches a
+   hard-block path is still a human task.
+2. **#432 + #434 - the MCP error surface.** `gh pr diff 432`, then `gh pr diff 434`. Read
+   `lib/mcp/errors.ts` whole (about 55 lines): every tool goes through `guardToolHandler`,
+   Prisma errors become fixed wording or "Server error.", anything else passes through
+   unchanged so the server's deliberate messages still reach the client. Worth a glance:
+   that no handler in `lib/mcp/server.ts` is registered without the guard.
+3. **#435 - schema and backup format.** `gh pr diff 435`. One additive column
+   (`Exercise.isFavorite`), `PATCH /api/exercises/[id]` scoped by `userId` in the `where`,
+   backup v7 in `app/api/backup/route.ts` (check a v6 backup still imports). Rollback tag
+   `autonomy-baseline-2026-10-13b`.
+4. **#436 - three new write routes.** `gh pr diff 436`. Read `lib/programs/duplicate.ts`:
+   every read is scoped to the owner inside one transaction, and save-as-workout checks the
+   target `programId` too. The copy-by-omission in `lib/programs/copy.ts` copies any future
+   `ProgramExercise` column automatically, which is the intent but worth knowing.
+
+**Process:** L39 (merge `main` into a sibling after a shared-type merge, now in `ship-pr`), L40
+(new `[param]` routes join the ownership ratchet, now in `implement-issue`), L41 (nested
+worktrees need `"root": true`, fixed in `.eslintrc.json`).
+
+**Trust the gate (lower risk):** the catalog star UI and its focus handling, the duplicate
+and save-as-workout buttons, the i18n strings, the CHANGELOG and README lines.

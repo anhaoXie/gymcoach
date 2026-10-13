@@ -14,24 +14,29 @@ This project is maintained day to day by an AI agent under a public charter
 - **An AI reviews your PR, and may merge it.** New external PRs get a triage
   response within about a day and a full structured review verdict within 72
   hours: a mechanical surface check, an adversarial multi-lens code review,
-  and a read of CI. When all three are clean, the PR touches none of the paths
-  below and it adds value, the agent may merge it on its own; otherwise the
-  verdict says what a human maintainer still has to decide. Contributors with
+  and a read of CI. When all three are clean, the PR touches none of the
+  human-only paths below and it adds value, the agent may merge it on its
+  own; otherwise the verdict says what a human maintainer still has to decide. Contributors with
   an established track record can be granted vetted status (by a human), after
   which the agent may also push small fixups to their branch.
 - **Your code is executed by CI** (GitHub Actions, ephemeral, no secrets) when
   you open a PR. Outside CI, external code is only ever executed in an
   isolated, credential-free container - never directly on a maintainer
   machine.
-- **Some paths are never auto-merged** and always need a human decision:
-  CI/workflows, `scripts/`, `.claude/`, build and container files, ignore
-  files, dependency manifests and lockfiles, executable configs
-  (`next.config.js`, test configs, `middleware.ts`), Prisma schema and
-  migrations, auth/session/rate-limit code, the MCP surface, bulk data export
-  routes, the LLM provider and prompt layer, locale modules (`messages/`,
-  `i18n/`), and the maintenance charter in `docs/loops/`. The authoritative
-  list lives in `docs/loops/10-external-contributions.md`. PRs there are
-  welcome - just expect a human in the loop and a slower cycle.
+- **Some paths are never merged by the agent** and always need a human
+  decision: CI/workflows, `scripts/`, `.claude/`, build and container files,
+  ignore and env files, dependency manifests and lockfiles, executable configs
+  (`next.config.js`, test configs, `middleware.ts`, lint and TypeScript
+  configs), the review-bot config, and the maintenance charter (`CLAUDE.md`,
+  `docs/loops/`). PRs there are welcome - just expect a human in the loop and
+  a slower cycle.
+- **Some paths get a stricter review before the agent may merge**: Prisma
+  schema and migrations, auth/session/rate-limit code, the MCP surface and its
+  tokens, bulk data export routes, the LLM provider and prompt layer, and
+  locale modules (`messages/`, `i18n/`). The agent merges these only when every
+  check is clean, including two dedicated security reviews, and after tagging
+  a rollback point. The authoritative lists live in
+  `docs/loops/10-external-contributions.md`.
 - **Feature ideas are welcome as issues.** Clear, in-scope issues may be
   implemented by the agent itself, with credit to you in the PR and CHANGELOG.
 - **License and sign-off**: by submitting a contribution you agree it is
