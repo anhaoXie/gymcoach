@@ -58,3 +58,4 @@ No cost per successful task is reported: the cost of every run is unknown.
 - `loop` means the maintainer account plus a Claude Co-Authored-By trailer. It shows Claude wrote the commits, not that the run was unattended; human prompting is not recorded.
 - Follow-up and revert links are reference heuristics within the window, not a causal analysis.
 - Vetted status uses the grant date in `docs/loops/10-external-contributions.md`.
+- PRs open at collection time are included at their head of that moment, with no merge outcome, and their CI may still change: 2 (#439, #440). A collection can include the PR that adds it.

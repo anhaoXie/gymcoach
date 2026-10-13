@@ -221,6 +221,11 @@ describe('run bundle builder (roadmap milestone 1)', () => {
     expect(open!.run.prOpenDuration.status).toBe('unknown');
     const report = renderReport(bundles, meta);
     expect(report).toMatch(/\| merged \| 1 \|\n\| closed-unmerged \| 1 \|\n\| open \| 1 \|/);
+    // An open run is named in the limits, since its outcome and CI can still change.
+    expect(report).toContain(
+      'PRs open at collection time are included at their head of that moment',
+    );
+    expect(report).toMatch(/open at collection time[^\n]*: 1 \(#\d+\)/);
   });
 
   it('links a revert commit and a revert PR back to the originating run', () => {
