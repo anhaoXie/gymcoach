@@ -98,7 +98,7 @@ test actually fails without the fix. These incidents guide the move from written
 rules to executable controls.
 
 A first [baseline report](baseline/2026-10-13/report.md) counts PR outcomes, CI
-evidence, reverts and follow-ups from public GitHub data, using the versioned
+evidence, human and bot reviews, reverts and fix follow-ups from public GitHub data, using the versioned
 records in [`automation/`](../../automation/README.md). It records cost, tokens,
 agent duration and human interventions as unknown: the current workflow does not
 capture them. We do not yet publish an autonomy rate, cost per successful task, or

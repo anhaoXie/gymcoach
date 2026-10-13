@@ -11,6 +11,7 @@ import {
   buildRunBundles,
 } from '@/automation/baseline/build';
 import { renderReport } from '@/automation/baseline/report';
+import { formatReport } from '@/automation/baseline/format';
 
 // Thin CLI around the pure builder. Read-only: it calls `gh api` GET
 // endpoints and `git log`, never posts, and needs no model or paid service.
@@ -18,6 +19,7 @@ import { renderReport } from '@/automation/baseline/report';
 //   npx tsx automation/baseline/collect.ts --since 2026-08-14 --window-days 14 \
 //     --out docs/loops/baseline/2026-10-13
 //
+// Run `git fetch` first: revert detection reads the local origin/main.
 // Uses the caller's gh authentication. Writes runs.jsonl, report.md and
 // meta.json. Nothing private is written: no PR/issue bodies, comment text,
 // commit messages or emails; those are read in memory for references only.
@@ -77,24 +79,31 @@ export function parseRevertLog(log: string): RawRevertCommit[] {
   return out;
 }
 
-function main() {
-  const since = new Date(arg('since')).toISOString();
+async function main() {
+  const sinceMs = new Date(arg('since')).getTime();
+  if (Number.isNaN(sinceMs)) throw new Error('Invalid --since date');
+  const since = new Date(sinceMs).toISOString();
+  // Compare instants, not ISO strings: GitHub writes "...Z", Date "...000Z".
+  const atOrAfterSince = (value: string | null) =>
+    value !== null && new Date(value).getTime() >= sinceMs;
   const windowDays = Number(arg('window-days', '14'));
   const outDir = arg('out');
   const now = new Date().toISOString();
 
   const pulls = pages<RawPull & { updated_at: string }>(
     `repos/${REPO}/pulls?state=all&sort=updated&direction=desc`,
-    (p) => p.updated_at < since,
-  ).filter((p) => p.created_at >= since || (p.closed_at ?? '') >= since || !p.closed_at);
+    (p) => new Date(p.updated_at).getTime() < sinceMs,
+  ).filter((p) => atOrAfterSince(p.created_at) || atOrAfterSince(p.closed_at) || !p.closed_at);
 
   const details: RawPullDetail[] = pulls.map((pull) => {
     const sha = pull.head.sha;
+    const commits = pages<{ sha: string; commit: { message: string } }>(
+      `repos/${REPO}/pulls/${pull.number}/commits`,
+    );
     return {
       pull,
-      commitMessages: pages<{ commit: { message: string } }>(
-        `repos/${REPO}/pulls/${pull.number}/commits`,
-      ).map((c) => c.commit.message),
+      commitMessages: commits.map((c) => c.commit.message),
+      commitShas: commits.map((c) => c.sha),
       workflowRuns: gh<{ workflow_runs: RawPullDetail['workflowRuns'] }>(
         `repos/${REPO}/actions/runs?head_sha=${sha}&per_page=100`,
       ).workflow_runs,
@@ -114,14 +123,19 @@ function main() {
     number: number;
     title: string;
     body: string | null;
+    state: string;
     created_at: string;
-    pull_request?: unknown;
+    labels: ({ name?: string } | string)[];
+    pull_request?: { merged_at?: string | null };
   }>(`repos/${REPO}/issues?state=all&since=${since}`).map((i) => ({
     number: i.number,
     isPull: i.pull_request !== undefined,
     title: i.title,
     body: i.body,
     created_at: i.created_at,
+    labels: i.labels.map((l) => (typeof l === 'string' ? l : (l.name ?? ''))).filter(Boolean),
+    closedUnmerged:
+      i.pull_request !== undefined && i.state === 'closed' && !i.pull_request.merged_at,
   }));
 
   const revertCommits = parseRevertLog(
@@ -157,9 +171,10 @@ function main() {
     join(outDir, 'runs.jsonl'),
     bundles.map((b) => JSON.stringify(b)).join('\n') + '\n',
   );
-  writeFileSync(join(outDir, 'report.md'), renderReport(bundles, meta));
+  const reportPath = join(outDir, 'report.md');
+  writeFileSync(reportPath, await formatReport(renderReport(bundles, meta), reportPath));
   writeFileSync(join(outDir, 'meta.json'), JSON.stringify(meta, null, 2) + '\n');
   console.log(`Wrote ${bundles.length} runs to ${outDir}`);
 }
 
-if (process.argv[1]?.endsWith('collect.ts')) main();
+if (process.argv[1]?.endsWith('collect.ts')) void main();

@@ -74,8 +74,9 @@ grading code, or reserved evaluation data that determine its own acceptance.
 ## Milestone 1 Record a measurable baseline
 
 - [x] Define versioned task, run, review, and outcome schemas.
-      Evidence: [`automation/records/schema.ts`](../../automation/records/schema.ts)
-      and its tests.
+      Evidence: [`automation/records/schema.ts`](../../automation/records/schema.ts),
+      tested in [`automation/records/schema.test.ts`](../../automation/records/schema.test.ts)
+      and [`automation/baseline/build.test.ts`](../../automation/baseline/build.test.ts).
 - [ ] Record task ID, source provenance, base/head SHA, stage, attempts, timestamps,
       runner/model configuration, skill version, verification evidence, and outcome.
       Partial: reconstructed after the fact from GitHub per PR head
@@ -88,12 +89,13 @@ grading code, or reserved evaluation data that determine its own acceptance.
       records them yet.
 - [ ] Link post-merge regressions, reverts, and follow-up fixes to the originating
       run using a declared observation window. Count aborted and failed runs too.
-      Partial: reverts and referencing issues or fix PRs are linked by heuristic
-      within the window, and closed-unmerged PRs are counted; work abandoned before
-      a PR opened is invisible.
+      Partial: reverts and fix follow-ups (bug issues and fix PRs that cite the PR)
+      are linked by heuristic within the window and reported over complete windows,
+      with observing runs apart; closed-unmerged PRs are counted; work abandoned
+      before a PR opened is invisible.
 - [x] Capture a baseline using the current workflow before optimizing it.
       Evidence: [`baseline/2026-10-13/report.md`](baseline/2026-10-13/report.md)
-      (77 PR runs since 2026-08-14). Limits: PR outcomes and CI evidence only;
+      (79 PR runs since 2026-08-14). Limits: PR outcomes and CI evidence only;
       cost, tokens, agent duration and interventions are unknown for every run.
 
 Store task state and artifacts outside mutable worker checkouts. Export sanitized

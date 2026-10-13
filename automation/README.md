@@ -12,14 +12,19 @@ the app never imports this directory and the Docker image does not ship it
   unknown, with a reason. A value the workflow does not record is unknown, never 0.
 - `baseline/build.ts` - pure builder: raw GitHub and git data in, records out.
 - `baseline/report.ts` - the Markdown report; every rate states its denominator.
-- `baseline/collect.ts` - read-only collector (`gh api` GET calls and `git log`):
+- `baseline/collect.ts` - read-only collector (`gh api` GET calls and `git log`).
+  Run `git fetch` first: revert detection reads the local `origin/main`.
 
   ```bash
+  git fetch origin
   npx tsx automation/baseline/collect.ts --since 2026-08-14 --window-days 14 \
     --out docs/loops/baseline/2026-10-13
   ```
 
-- `baseline/render.ts` - re-renders `report.md` from a collected `runs.jsonl`.
+- `baseline/render.ts` - re-renders `report.md` from a collected `runs.jsonl` and
+  `meta.json` without calling GitHub (`npx tsx automation/baseline/render.ts <dir>`).
+  Both scripts format the report with the repo's Prettier config, so a re-render
+  reproduces the committed `report.md` byte for byte.
 
 Outputs are public metadata only: PR numbers, logins, SHAs, timestamps, check
 names and conclusions. PR and issue bodies, comment text and commit messages are
@@ -30,3 +35,14 @@ trailer on the PR commits; `maintainer-unattributed` is the maintainer account
 without one; `external-vetted` uses the grant date in
 `docs/loops/10-external-contributions.md`; everyone else is `external`. The
 trailer shows Claude wrote the commits, not that the run was unattended.
+
+Reviews: a reviewer is a `bot` (login ending in `[bot]`), a `maintainer`, or
+`other-human`; bot reviews are reported apart from the human review line. A
+posted verdict counts only when a maintainer comment names a verdict and the head
+it reviewed (`head \`<sha>\``); the short SHA is resolved against the PR's commits.
+
+Follow-ups: a bug-labelled issue or an issue or PR titled `fix`/`bug` that cites
+the PR within the window; a fix PR closed unmerged does not count. Revert and
+follow-up rates are reported over runs whose window has closed, with observing
+runs apart. CI: skipped and neutral checks are not decisive, and a running check
+leaves the head's CI outcome unknown.

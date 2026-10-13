@@ -29,16 +29,22 @@ export interface RawPullDetail {
   pull: RawPull;
   // Commit messages, read only for the Claude Co-Authored-By trailer.
   commitMessages: string[];
+  // SHAs of the PR's commits, to resolve a short SHA named in a verdict.
+  commitShas: string[];
   workflowRuns: { head_sha: string; run_attempt: number; event: string }[];
   checkRuns: { name: string; conclusion: string | null; completed_at: string | null }[];
   reviews: {
-    user: { login: string } | null;
+    user: { login: string; type?: string } | null;
     state: string;
     commit_id: string | null;
     submitted_at: string | null;
   }[];
   // Issue comments, read only to detect a posted review verdict.
-  comments: { user: { login: string } | null; body: string | null; created_at: string }[];
+  comments: {
+    user: { login: string; type?: string } | null;
+    body: string | null;
+    created_at: string;
+  }[];
 }
 
 // An issue or PR from the repository, read only for references to a PR.
@@ -48,6 +54,9 @@ export interface RawItem {
   title: string;
   body: string | null;
   created_at: string;
+  labels: string[];
+  // For a PR: true when it was closed without merging. Always false for issues.
+  closedUnmerged: boolean;
 }
 
 export interface RawRevertCommit {
@@ -77,7 +86,13 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 
 const CLOSING = /\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\s+#(\d+)\b/gi;
 const CLAUDE_TRAILER = /^Co-Authored-By:\s*Claude\s+([^<\n]+?)\s*</im;
-const VERDICT = /review verdict/i;
+// A posted verdict is a maintainer comment that names a verdict AND the head
+// it reviewed ("head `<sha>`"), the shape every loop verdict uses. A comment
+// that only mentions the word is not a verdict.
+const VERDICT = /\bverdict\b/i;
+const VERDICT_HEAD = /\bhead\s+`([0-9a-f]{7,40})`/i;
+// Checks whose conclusion settles nothing about the head's health.
+const NOT_DECISIVE = new Set(['skipped', 'neutral']);
 
 function iso(value: string): string {
   return new Date(value).toISOString();
@@ -92,8 +107,46 @@ export function linkedIssues(body: string | null): number[] {
   return out;
 }
 
-function references(text: string, prNumber: number): boolean {
-  return new RegExp(`#${prNumber}(?!\\d)`).test(text);
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+// A same-repository reference to the PR: a bare `#N`, or `owner/repo#N` for
+// this repository. `#300` does not match `#30`, and `other/repo#30` is another
+// repository's item.
+export function references(text: string, prNumber: number, repo: string): boolean {
+  const bare = new RegExp(`(?:^|[^\\w/.#-])#${prNumber}(?!\\d)`);
+  const qualified = new RegExp(`(?:^|[^\\w/.-])${escapeRegExp(repo)}#${prNumber}(?!\\d)`, 'i');
+  return bare.test(text) || qualified.test(text);
+}
+
+function reviewerClass(user: { login: string; type?: string }, maintainers: string[]) {
+  if (user.type === 'Bot' || user.login.endsWith('[bot]')) return 'bot' as const;
+  return maintainers.includes(user.login) ? ('maintainer' as const) : ('other-human' as const);
+}
+
+// Resolves the short SHA a verdict names against the PR's head and commits.
+function resolveSha(short: string, candidates: string[]): string | null {
+  const lower = short.toLowerCase();
+  return candidates.find((c) => c.startsWith(lower)) ?? null;
+}
+
+// The head's CI outcome: null while a check runs or when no decisive check
+// ran; skipped and neutral checks do not count either way.
+function checksOutcome(conclusions: (string | null)[]): boolean | null {
+  if (conclusions.some((c) => c === null)) return null;
+  const decisive = conclusions.filter((c): c is string => !NOT_DECISIVE.has(c!));
+  if (decisive.length === 0) return null;
+  return decisive.every((c) => c === 'success');
+}
+
+// A follow-up worth counting: an issue filed as a bug or fix, or a fix PR that
+// was not closed unmerged. Feature and chore issues that cite a PR are
+// planned work, not a sign the PR needed fixing.
+function isFixFollowUp(item: RawItem): boolean {
+  const fixTitle = /^(?:fix|bug)\b/i.test(item.title);
+  if (item.isPull) return fixTitle && !item.closedUnmerged;
+  return fixTitle || item.labels.some((l) => l.toLowerCase() === 'bug');
 }
 
 function trailerModel(messages: string[]): Observation {
@@ -155,6 +208,7 @@ function buildOne(detail: RawPullDetail, input: BuildInput): RunBundle {
       }
     : unknown('PR still open');
 
+  const shaCandidates = [pull.head.sha, ...detail.commitShas];
   const reviews: ReviewRecord[] = [
     ...detail.reviews
       .filter((r) => r.user && r.submitted_at)
@@ -163,23 +217,29 @@ function buildOne(detail: RawPullDetail, input: BuildInput): RunBundle {
         runId,
         source: 'github-review' as const,
         reviewer: r.user!.login,
+        reviewerClass: reviewerClass(r.user!, input.maintainers),
         commitSha: r.commit_id,
         state: r.state,
         submittedAt: iso(r.submitted_at!),
       })),
-    ...detail.comments
-      .filter(
-        (c) => c.user && input.maintainers.includes(c.user.login) && VERDICT.test(c.body ?? ''),
-      )
-      .map((c) => ({
-        schemaVersion: SCHEMA_VERSION,
-        runId,
-        source: 'verdict-comment' as const,
-        reviewer: c.user!.login,
-        commitSha: null,
-        state: 'commented',
-        submittedAt: iso(c.created_at),
-      })),
+    ...detail.comments.flatMap((c) => {
+      const body = c.body ?? '';
+      const head = VERDICT_HEAD.exec(body);
+      if (!c.user || !input.maintainers.includes(c.user.login)) return [];
+      if (!VERDICT.test(body) || !head) return [];
+      return [
+        {
+          schemaVersion: SCHEMA_VERSION,
+          runId,
+          source: 'verdict-comment' as const,
+          reviewer: c.user.login,
+          reviewerClass: reviewerClass(c.user, input.maintainers),
+          commitSha: resolveSha(head[1]!, shaCandidates),
+          state: 'commented',
+          submittedAt: iso(c.created_at),
+        },
+      ];
+    }),
   ];
 
   let windowEndsAt: string | null = null;
@@ -200,7 +260,7 @@ function buildOne(detail: RawPullDetail, input: BuildInput): RunBundle {
         inWindow(commit.committedAt)
       ) {
         reverts.push({
-          number: pull.number,
+          number: null,
           kind: 'commit',
           sha: commit.sha,
           createdAt: iso(commit.committedAt),
@@ -211,17 +271,19 @@ function buildOne(detail: RawPullDetail, input: BuildInput): RunBundle {
       if (item.number === pull.number || issues.includes(item.number)) continue;
       if (!inWindow(item.created_at)) continue;
       const text = `${item.title}\n${item.body ?? ''}`;
-      if (!references(text, pull.number)) continue;
+      if (!references(text, pull.number, input.repo)) continue;
       const entry = {
         number: item.number,
         kind: item.isPull ? ('pr' as const) : ('issue' as const),
         sha: null,
         createdAt: iso(item.created_at),
       };
-      if (item.isPull && /^revert\b/i.test(item.title)) reverts.push(entry);
-      // Heuristic: an issue referencing the PR, or a fix PR referencing it.
-      // Write-up and docs PRs cite many PRs and are not follow-ups.
-      else if (!item.isPull || /^fix\b/i.test(item.title)) followUps.push(entry);
+      if (item.isPull && /^revert\b/i.test(item.title)) {
+        if (!item.closedUnmerged) reverts.push(entry);
+      }
+      // Heuristic: a bug/fix issue or a fix PR that cites the PR. Write-up,
+      // docs, feature and chore items cite PRs without implying a defect.
+      else if (isFixFollowUp(item)) followUps.push(entry);
     }
   }
 
@@ -253,10 +315,14 @@ function buildOne(detail: RawPullDetail, input: BuildInput): RunBundle {
       },
       attempts: {
         headCommits: count(detail.commitMessages.length),
+        // Unknown unless a check actually ran on the head: a workflow run with
+        // no check (e.g. a fork run awaiting approval) is not a CI attempt.
         ciRunAttemptsOnHead:
-          headRuns.length > 0
-            ? count(Math.max(...headRuns.map((r) => r.run_attempt)))
-            : unknown('no CI workflow run recorded for the head SHA'),
+          headRuns.length === 0
+            ? unknown('no CI workflow run recorded for the head SHA')
+            : checks.length === 0
+              ? unknown('a workflow run exists for the head SHA but no check ran on it')
+              : count(Math.max(...headRuns.map((r) => r.run_attempt))),
         agentAttempts: unknown(NOT_RECORDED),
       },
       runner: {
@@ -266,8 +332,7 @@ function buildOne(detail: RawPullDetail, input: BuildInput): RunBundle {
       verification: {
         headSha: pull.head.sha,
         checks,
-        allChecksSucceeded:
-          checks.length === 0 ? null : checks.every((c) => c.conclusion === 'success'),
+        allChecksSucceeded: checksOutcome(checks.map((c) => c.conclusion)),
       },
       usage: {
         inputTokens: unknown(NOT_RECORDED),

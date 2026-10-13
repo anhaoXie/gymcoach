@@ -102,7 +102,9 @@ export const runRecordSchema = z
       .object({
         headSha: sha,
         checks: z.array(checkResultSchema),
-        // null when no check ran on the head: absent evidence is not success.
+        // null when the outcome is not established: no decisive check ran on
+        // the head, or a check is still running. Skipped and neutral checks
+        // are not decisive. Absent evidence is never success.
         allChecksSucceeded: z.boolean().nullable(),
       })
       .strict(),
@@ -122,13 +124,25 @@ export const runRecordSchema = z
   .strict();
 export type RunRecord = z.infer<typeof runRecordSchema>;
 
+export const reviewerClasses = [
+  // A GitHub App or bot account (login ending in [bot]): automated output,
+  // reported apart from human review.
+  'bot',
+  // A maintainer account (the loop posts its verdicts from it).
+  'maintainer',
+  'other-human',
+] as const;
+
 export const reviewRecordSchema = z
   .object({
     schemaVersion: z.literal(SCHEMA_VERSION),
     runId: z.string().min(1),
     source: z.enum(['github-review', 'verdict-comment']),
     reviewer: z.string().min(1),
-    // The commit the review was bound to, when GitHub records it.
+    reviewerClass: z.enum(reviewerClasses),
+    // The commit the review was bound to: GitHub's commit_id for a review, or
+    // the "head `<sha>`" a verdict comment names, resolved against the PR's
+    // commits. null when neither is available.
     commitSha: sha.nullable(),
     state: z.string().min(1),
     submittedAt: isoDate,
@@ -138,7 +152,8 @@ export type ReviewRecord = z.infer<typeof reviewRecordSchema>;
 
 export const linkedItemSchema = z
   .object({
-    number: z.number().int().positive(),
+    // The issue or PR number; null for a revert commit, which has no number.
+    number: z.number().int().positive().nullable(),
     kind: z.enum(['issue', 'pr', 'commit']),
     // For a revert commit, the commit SHA; otherwise null.
     sha: sha.nullable(),

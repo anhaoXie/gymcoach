@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { type BuildInput, type RawPullDetail, buildRunBundles, linkedIssues } from './build';
+import {
+  type BuildInput,
+  type RawItem,
+  type RawPullDetail,
+  buildRunBundles,
+  linkedIssues,
+  references,
+} from './build';
 import { renderReport, summarizeMeasurements } from './report';
 import { parseRevertLog, parseVetted } from './collect';
 
@@ -23,6 +30,7 @@ function detail(
       ...over,
     },
     commitMessages: ['feat: something\n\nCo-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>'],
+    commitShas: [over.head?.sha ?? sha('a')],
     workflowRuns: [{ head_sha: over.head?.sha ?? sha('a'), run_attempt: 1, event: 'pull_request' }],
     checkRuns: [
       {
@@ -39,6 +47,17 @@ function detail(
     reviews: [],
     comments: [],
     ...extra,
+  };
+}
+
+function item(over: Partial<RawItem> & { number: number; title: string }): RawItem {
+  return {
+    isPull: false,
+    body: null,
+    created_at: '2026-09-04T00:00:00Z',
+    labels: [],
+    closedUnmerged: false,
+    ...over,
   };
 }
 
@@ -75,13 +94,20 @@ describe('run bundle builder (roadmap milestone 1)', () => {
               comments: [
                 {
                   user: { login: 'JulienAu' },
-                  body: '**Review verdict (head `abc`): ready.**',
+                  body: '**Review verdict (head `aaaaaaa`): ready.**',
                   created_at: '2026-09-01T11:30:00Z',
                 },
+                // Not a maintainer.
                 {
                   user: { login: 'someone' },
-                  body: 'review verdict please',
+                  body: 'review verdict please, head `aaaaaaa`',
                   created_at: '2026-09-01T11:31:00Z',
+                },
+                // A maintainer mentioning a verdict without naming a head.
+                {
+                  user: { login: 'JulienAu' },
+                  body: 'I will post the review verdict tomorrow.',
+                  created_at: '2026-09-01T11:32:00Z',
                 },
               ],
             },
@@ -103,9 +129,16 @@ describe('run bundle builder (roadmap milestone 1)', () => {
       verification: { headSha: sha('a'), allChecksSucceeded: true },
       prOpenDuration: { status: 'known', value: 7200, unit: 'seconds' },
     });
-    // Only the maintainer's verdict counts as a recorded review.
-    expect(bundle!.reviews).toHaveLength(1);
-    expect(bundle!.reviews[0]).toMatchObject({ source: 'verdict-comment', reviewer: 'JulienAu' });
+    // Only the maintainer's structural verdict counts, bound to the head it names.
+    expect(bundle!.reviews).toEqual([
+      expect.objectContaining({
+        source: 'verdict-comment',
+        reviewer: 'JulienAu',
+        reviewerClass: 'maintainer',
+        commitSha: sha('a'),
+      }),
+    ]);
+    expect(renderReport([bundle!], meta)).toContain('Bound to the final head SHA: 1 of 1');
     expect(bundle!.outcome).toMatchObject({
       outcome: 'merged',
       observation: { status: 'complete' },
@@ -201,56 +234,34 @@ describe('run bundle builder (roadmap milestone 1)', () => {
           { sha: sha('9'), committedAt: '2026-09-03T00:00:00Z', revertedSha: sha('e') },
         ],
         items: [
-          {
+          item({
             number: 32,
             isPull: true,
             title: 'Revert "feat: something"',
             body: 'Reverts gymcoach-app/gymcoach#30',
             created_at: '2026-09-02T00:00:00Z',
-          },
-          {
-            number: 33,
-            isPull: false,
-            title: 'bug after #30',
-            body: null,
-            created_at: '2026-09-04T00:00:00Z',
-          },
+          }),
+          item({ number: 33, title: 'bug after #30' }),
           // A write-up PR cites many PRs and is not a follow-up.
-          {
-            number: 34,
-            isPull: true,
-            title: 'docs: write up #30 and #31',
-            body: null,
-            created_at: '2026-09-04T00:00:00Z',
-          },
+          item({ number: 34, isPull: true, title: 'docs: write up #30 and #31' }),
           // #300 must not match #30.
-          {
-            number: 35,
-            isPull: false,
-            title: 'unrelated #300',
-            body: null,
-            created_at: '2026-09-04T00:00:00Z',
-          },
+          item({ number: 35, title: 'fix: unrelated #300' }),
           // Outside the 14-day window.
-          {
-            number: 36,
-            isPull: false,
-            title: 'late #30',
-            body: null,
-            created_at: '2026-10-01T00:00:00Z',
-          },
+          item({ number: 36, title: 'fix: late #30', created_at: '2026-10-01T00:00:00Z' }),
+          // Another repository's #30.
+          item({ number: 37, title: 'fix: see other/repo#30' }),
         ],
       }),
     );
     expect(origin!.outcome.reverts).toEqual([
-      { number: 30, kind: 'commit', sha: sha('9'), createdAt: '2026-09-03T00:00:00.000Z' },
+      { number: null, kind: 'commit', sha: sha('9'), createdAt: '2026-09-03T00:00:00.000Z' },
       { number: 32, kind: 'pr', sha: null, createdAt: '2026-09-02T00:00:00.000Z' },
     ]);
     expect(origin!.outcome.followUps.map((f) => f.number)).toEqual([33]);
     expect(other!.outcome.reverts).toEqual([]);
     expect(other!.outcome.followUps).toEqual([]);
     expect(renderReport([origin!, other!], meta)).toContain(
-      'Reverted within the window: 1 of 2 (#30)',
+      'Reverted within the window: 1 of 2 complete runs (#30)',
     );
   });
 
@@ -316,6 +327,173 @@ describe('run bundle builder (roadmap milestone 1)', () => {
       unit: 'count',
     });
     expect(b!.run.verification.allChecksSucceeded).toBe(false);
+  });
+});
+
+describe('review, follow-up and CI rules (review of #439)', () => {
+  it('reports bot reviews apart and counts only human reviews in the headline', () => {
+    const bundles = buildRunBundles(
+      input({
+        pulls: [
+          detail(
+            { number: 60 },
+            {
+              reviews: [
+                {
+                  user: { login: 'coderabbitai[bot]', type: 'Bot' },
+                  state: 'COMMENTED',
+                  commit_id: sha('a'),
+                  submitted_at: '2026-09-01T11:00:00Z',
+                },
+              ],
+            },
+          ),
+          detail(
+            { number: 61 },
+            {
+              reviews: [
+                {
+                  user: { login: 'JulienAu' },
+                  state: 'APPROVED',
+                  commit_id: sha('a'),
+                  submitted_at: '2026-09-01T11:00:00Z',
+                },
+              ],
+            },
+          ),
+        ],
+      }),
+    );
+    expect(bundles[0]!.reviews[0]!.reviewerClass).toBe('bot');
+    expect(bundles[1]!.reviews[0]!.reviewerClass).toBe('maintainer');
+    const report = renderReport(bundles, meta);
+    expect(report).toContain(
+      'posted verdict naming its head): 1 of 2. Bound to the final head SHA: 1 of 2',
+    );
+    expect(report).toContain('not counted above: 1 of 2');
+  });
+
+  it('binds a verdict to the commit it names, which may not be the final head', () => {
+    const [b] = buildRunBundles(
+      input({
+        pulls: [
+          detail(
+            { number: 62 },
+            {
+              commitShas: [sha('5'), sha('a')],
+              comments: [
+                {
+                  user: { login: 'JulienAu' },
+                  body: '## Review verdict - ready with fixups\n\nReviewed at head `5555555` (pinned).',
+                  created_at: '2026-09-01T11:30:00Z',
+                },
+              ],
+            },
+          ),
+        ],
+      }),
+    );
+    expect(b!.reviews[0]!.commitSha).toBe(sha('5'));
+    expect(renderReport([b!], meta)).toContain('Bound to the final head SHA: 0 of 1');
+  });
+
+  it('counts only fix follow-ups: bug issues and fix PRs that were not closed unmerged', () => {
+    const [b] = buildRunBundles(
+      input({
+        pulls: [detail({ number: 70 })],
+        items: [
+          item({ number: 71, title: 'feat(session): show sets after #70' }),
+          item({ number: 72, title: 'chore: tidy after #70' }),
+          item({ number: 73, title: 'Session totals wrong since #70', labels: ['bug'] }),
+          item({ number: 74, title: 'fix: follow-up of #70', isPull: true, closedUnmerged: true }),
+          item({ number: 75, title: 'fix(api): follow-up of #70', isPull: true }),
+          item({ number: 76, title: 'fix(api): one error mapper (#70 review)' }),
+        ],
+      }),
+    );
+    expect(b!.outcome.followUps.map((f) => f.number)).toEqual([73, 75, 76]);
+  });
+
+  it('reports regression signals over complete runs and observing runs apart', () => {
+    const bundles = buildRunBundles(
+      input({
+        pulls: [
+          detail({ number: 80 }),
+          detail({ number: 81 }),
+          detail({
+            number: 82,
+            created_at: '2026-10-10T00:00:00Z',
+            closed_at: '2026-10-10T01:00:00Z',
+            merged_at: '2026-10-10T01:00:00Z',
+          }),
+        ],
+        items: [
+          item({ number: 83, title: 'fix: after #80' }),
+          item({ number: 84, title: 'fix: after #82', created_at: '2026-10-11T00:00:00Z' }),
+        ],
+      }),
+    );
+    const report = renderReport(bundles, meta);
+    expect(report).toContain(
+      '(heuristic): 1 of 2 complete runs (#80). Partial, still observing: 1 of 1 (#82).',
+    );
+    expect(report).toContain(
+      'Reverted within the window: 0 of 2 complete runs. Partial, still observing: 0 of 1.',
+    );
+  });
+
+  it('keeps CI rerun and CI outcome unknown on a head where no check ran', () => {
+    const bundles = buildRunBundles(
+      input({
+        pulls: [
+          detail({ number: 90 }),
+          // A fork run awaiting approval: a workflow run, but no check.
+          detail({ number: 91, user: { login: 'stranger' } }, { checkRuns: [] }),
+        ],
+      }),
+    );
+    expect(bundles[1]!.run.attempts.ciRunAttemptsOnHead.status).toBe('unknown');
+    expect(bundles[1]!.run.verification.allChecksSucceeded).toBeNull();
+    const report = renderReport(bundles, meta);
+    // Both CI lines agree on the same unknown run.
+    expect(report).toContain('1 of 1 runs with a settled CI outcome (1 unknown');
+    expect(report).toContain('0 of 1 runs where a check ran on the head (1 unknown)');
+  });
+
+  it('treats a running check as unknown and ignores skipped and neutral checks', () => {
+    const outcome = (conclusions: (string | null)[]) =>
+      buildRunBundles(
+        input({
+          pulls: [
+            detail(
+              { number: 95 },
+              {
+                checkRuns: conclusions.map((conclusion, i) => ({
+                  name: `check ${i}`,
+                  conclusion,
+                  completed_at: conclusion ? '2026-09-01T11:00:00Z' : null,
+                })),
+              },
+            ),
+          ],
+        }),
+      )[0]!.run.verification.allChecksSucceeded;
+    expect(outcome(['success', null])).toBeNull();
+    expect(outcome(['success', 'skipped'])).toBe(true);
+    expect(outcome(['neutral', 'skipped'])).toBeNull();
+    expect(outcome(['failure', 'skipped'])).toBe(false);
+  });
+});
+
+describe('same-repository references', () => {
+  const repo = 'gymcoach-app/gymcoach';
+  it('matches a bare or same-repo reference, not a longer number or another repo', () => {
+    expect(references('see #30.', 30, repo)).toBe(true);
+    expect(references('(#30)', 30, repo)).toBe(true);
+    expect(references('Reverts gymcoach-app/gymcoach#30', 30, repo)).toBe(true);
+    expect(references('#300', 30, repo)).toBe(false);
+    expect(references('other/repo#30', 30, repo)).toBe(false);
+    expect(references('other/gymcoach-app/gymcoach#30', 30, repo)).toBe(false);
   });
 });
 

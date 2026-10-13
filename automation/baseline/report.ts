@@ -55,20 +55,29 @@ export function renderReport(bundles: RunBundle[], meta: ReportMeta): string {
   const outcomes = by((b) => b.outcome.outcome);
   const classes = by((b) => b.run.author.class);
   const merged = bundles.filter((b) => b.outcome.outcome === 'merged');
-  const observing = merged.filter((b) => b.outcome.observation.status === 'observing').length;
-  const complete = merged.length - observing;
-  const reverted = merged.filter((b) => b.outcome.reverts.length > 0);
-  const withFollowUps = merged.filter((b) => b.outcome.followUps.length > 0);
+  const observingRuns = merged.filter((b) => b.outcome.observation.status === 'observing');
+  const completeRuns = merged.filter((b) => b.outcome.observation.status === 'complete');
+  const prList = (runs: RunBundle[]) =>
+    runs.length ? ` (${runs.map((b) => `#${b.run.prNumber}`).join(', ')})` : '';
+  // Regression signals are final only once the window has closed; observing
+  // runs are reported apart as partial, never mixed into the same rate.
+  const reverted = (runs: RunBundle[]) => runs.filter((b) => b.outcome.reverts.length > 0);
+  const followedUp = (runs: RunBundle[]) => runs.filter((b) => b.outcome.followUps.length > 0);
 
-  const withChecks = bundles.filter((b) => b.run.verification.allChecksSucceeded !== null);
-  const green = withChecks.filter((b) => b.run.verification.allChecksSucceeded).length;
+  const settled = bundles.filter((b) => b.run.verification.allChecksSucceeded !== null);
+  const green = settled.filter((b) => b.run.verification.allChecksSucceeded).length;
   const attempts = bundles.map((b) => b.run.attempts.ciRunAttemptsOnHead);
   const knownAttempts = attempts.filter((a) => a.status === 'known');
   const rerun = knownAttempts.filter((a) => a.status === 'known' && a.value > 1).length;
   const fixups = merged.filter(
     (b) => b.run.attempts.headCommits.status === 'known' && b.run.attempts.headCommits.value > 1,
   ).length;
-  const recordedReviews = merged.filter((b) => b.reviews.length > 0).length;
+  const human = (b: RunBundle) => b.reviews.filter((r) => r.reviewerClass !== 'bot');
+  const humanReviewed = merged.filter((b) => human(b).length > 0).length;
+  const boundToHead = merged.filter((b) =>
+    human(b).some((r) => r.commitSha === b.run.headSha),
+  ).length;
+  const botReviewed = merged.filter((b) => b.reviews.some((r) => r.reviewerClass === 'bot')).length;
 
   const openTimes = merged
     .map((b) => b.run.prOpenDuration)
@@ -99,16 +108,18 @@ export function renderReport(bundles: RunBundle[], meta: ReportMeta): string {
     '',
     '## Outcomes after merge',
     '',
-    `- Observation window complete for ${complete} of ${merged.length} merged runs; ${observing} still observing (their regression counts are not final).`,
-    `- Reverted within the window: ${reverted.length} of ${merged.length}${reverted.length ? ` (${reverted.map((b) => `#${b.run.prNumber}`).join(', ')})` : ''}.`,
-    `- With a follow-up issue or fix PR referencing them within the window: ${withFollowUps.length} of ${merged.length}. Heuristic: an issue, or a PR titled \`fix...\`, that cites the PR number.`,
+    `- Observation window complete for ${completeRuns.length} of ${merged.length} merged runs; ${observingRuns.length} still observing.`,
+    `- Reverted within the window: ${reverted(completeRuns).length} of ${completeRuns.length} complete runs${prList(reverted(completeRuns))}. Partial, still observing: ${reverted(observingRuns).length} of ${observingRuns.length}${prList(reverted(observingRuns))}.`,
+    `- Fix follow-ups referencing the PR within the window (heuristic): ${followedUp(completeRuns).length} of ${completeRuns.length} complete runs${prList(followedUp(completeRuns))}. Partial, still observing: ${followedUp(observingRuns).length} of ${observingRuns.length}${prList(followedUp(observingRuns))}. Counted: a bug-labelled issue or one titled \`fix\`/\`bug\`, or a \`fix\` PR not closed unmerged, that cites the PR number. A reference is not a causal link: review follow-ups filed on purpose count too.`,
     '',
     '## Verification and attempts',
     '',
-    `- All CI checks succeeded on the final head: ${green} of ${withChecks.length} runs with checks (${total - withChecks.length} runs had no check recorded on the head).`,
-    `- CI rerun on the final head (run attempt above 1): ${rerun} of ${knownAttempts.length} runs with a recorded CI run (${total - knownAttempts.length} unknown).`,
+    `- All decisive CI checks succeeded on the final head: ${green} of ${settled.length} runs with a settled CI outcome (${total - settled.length} unknown: no decisive check on the head, or a check still running; skipped and neutral checks are not decisive).`,
+    `- CI rerun on the final head (run attempt above 1): ${rerun} of ${knownAttempts.length} runs where a check ran on the head (${total - knownAttempts.length} unknown).`,
     `- Merged with more than one commit on the branch (fixups): ${fixups} of ${merged.length}.`,
-    `- Merged runs with a review recorded on GitHub (review or posted verdict): ${recordedReviews} of ${merged.length}. Local subagent reviews left no per-SHA record and are unknown.`,
+    `- Merged runs with a human review recorded on GitHub (a maintainer or human review, or a posted verdict naming its head): ${humanReviewed} of ${merged.length}. Bound to the final head SHA: ${boundToHead} of ${merged.length}.`,
+    `- Merged runs with a bot review (e.g. an automated reviewer), reported apart and not counted above: ${botReviewed} of ${merged.length}.`,
+    '- Local subagent reviews left no per-SHA record and are unknown for every run.',
     `- Median time from PR creation to merge: ${hours(median(openTimes))} over ${openTimes.length} merged runs.`,
     '',
     '## Usage and cost',
