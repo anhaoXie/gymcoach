@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useTranslations } from 'next-intl';
-import { MoreHorizontal, Plus, Pencil, Printer, Trash2 } from 'lucide-react';
+import { Copy, MoreHorizontal, Plus, Pencil, Printer, Trash2 } from 'lucide-react';
 import type { Exercise, ProgramExercise, Workout } from '@/lib/prisma-client';
 import { toast } from 'sonner';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -66,6 +66,22 @@ export function WorkoutCard({ workout, catalog }: Props) {
     } finally {
       setDeleting(false);
     }
+  }
+
+  // Duplicate (issue #394): copies the workout and every programmed exercise,
+  // repeats included, into the same program.
+  async function handleDuplicate() {
+    const res = await fetch(`/api/workouts/${workout.id}/duplicate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: t('copyName', { name: trainingName(workout.name) }) }),
+    }).catch(() => null);
+    if (!res?.ok) {
+      toast.error(t('duplicateError'));
+      return;
+    }
+    toast.success(t('duplicated'));
+    router.refresh();
   }
 
   const dayKey = workout.dayOfWeek != null ? DAY_KEYS[workout.dayOfWeek - 1] : null;
@@ -165,6 +181,10 @@ export function WorkoutCard({ workout, catalog }: Props) {
               >
                 <Printer className="mr-2 size-4" />
                 {printT('action')}
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={handleDuplicate}>
+                <Copy className="mr-2 size-4" />
+                {t('duplicate')}
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem

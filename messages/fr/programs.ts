@@ -47,6 +47,10 @@ export const programs = {
   deleteDescription:
     '« {name} » sera supprimé avec ses séances et ses exercices programmés. L’historique d’entraînement passé sera conservé sans programme associé.',
   deleting: 'Suppression...',
+  duplicate: 'Dupliquer',
+  duplicated: 'Programme dupliqué.',
+  duplicateError: 'Impossible de dupliquer le programme.',
+  copyName: '{name} (copie)',
   templateCreated: 'Programme créé depuis le modèle.',
   templateUse: 'Utiliser ce modèle',
   dayCount: '{count, plural, one {# jour} other {# jours}}',
@@ -69,6 +73,10 @@ export const programs = {
     supersetLimit: 'Limite de supersets atteinte pour cette séance.',
     supersetPaired: 'Exercices associés en superset.',
     supersetRemoved: 'Superset supprimé.',
+    duplicate: 'Dupliquer',
+    duplicated: 'Séance dupliquée.',
+    duplicateError: 'Impossible de dupliquer la séance.',
+    copyName: '{name} (copie)',
   },
   exercise: {
     actions: 'Actions de l’exercice',

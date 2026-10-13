@@ -54,6 +54,20 @@ export const history = {
     heartRate: 'FC',
     chartMinutes: '{value} min',
   },
+  saveAsWorkout: {
+    button: 'Enregistrer comme séance',
+    title: 'Enregistrer comme séance',
+    description:
+      'Ajoute une séance à un programme avec les exercices et les séries de travail réellement faits : nombre de séries, fourchette de répétitions et RIR moyen.',
+    program: 'Programme',
+    programPlaceholder: 'Choisir un programme',
+    noPrograms: 'Créez d’abord un programme pour y enregistrer cette séance.',
+    name: 'Nom de la séance',
+    save: 'Enregistrer',
+    saving: 'Enregistrement...',
+    saved: 'Séance enregistrée.',
+    error: 'Impossible d’enregistrer la séance.',
+  },
   copy: {
     button: 'Copier en texte',
     copied: 'Séance copiée.',

@@ -51,6 +51,20 @@ export const history = {
     heartRate: 'HR',
     chartMinutes: '{value} min',
   },
+  saveAsWorkout: {
+    button: 'Save as a workout',
+    title: 'Save as a workout',
+    description:
+      'Adds a workout to a program with the exercises and working sets you actually did: set count, rep range and average RIR.',
+    program: 'Program',
+    programPlaceholder: 'Choose a program',
+    noPrograms: 'Create a program first to save this session into it.',
+    name: 'Workout name',
+    save: 'Save',
+    saving: 'Saving...',
+    saved: 'Workout saved.',
+    error: 'Could not save the workout.',
+  },
   copy: {
     button: 'Copy as text',
     copied: 'Workout copied.',

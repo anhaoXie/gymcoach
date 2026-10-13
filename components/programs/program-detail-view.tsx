@@ -4,7 +4,7 @@ import { useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useTranslations } from 'next-intl';
-import { ChevronLeft, Plus, Printer } from 'lucide-react';
+import { ChevronLeft, Copy, Plus, Printer } from 'lucide-react';
 import type { Exercise, Program, ProgramExercise, Workout } from '@/lib/prisma-client';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
@@ -33,6 +33,29 @@ export function ProgramDetailView({ program, catalog }: Props) {
   const [editOpen, setEditOpen] = useState(false);
   const [addWorkoutOpen, setAddWorkoutOpen] = useState(false);
   const [activating, setActivating] = useState(false);
+  const [duplicating, setDuplicating] = useState(false);
+
+  // Duplicate (issue #394): an independent deep copy, created inactive; the
+  // trainee lands on the copy to rename or adjust it.
+  async function duplicate() {
+    setDuplicating(true);
+    try {
+      const res = await fetch(`/api/programs/${program.id}/duplicate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: t('copyName', { name: trainingName(program.name) }) }),
+      }).catch(() => null);
+      if (!res?.ok) {
+        toast.error(t('duplicateError'));
+        return;
+      }
+      const copy = (await res.json()) as { id: string };
+      toast.success(t('duplicated'));
+      router.push(`/programs/${copy.id}`);
+    } finally {
+      setDuplicating(false);
+    }
+  }
 
   async function toggleActive() {
     setActivating(true);
@@ -98,6 +121,16 @@ export function ProgramDetailView({ program, catalog }: Props) {
               <Printer className="size-4" />
               <span className="ml-2">{t('print.action')}</span>
             </Link>
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={duplicate}
+            disabled={duplicating}
+            className="min-h-tap"
+          >
+            <Copy className="size-4" />
+            <span className="ml-2">{t('duplicate')}</span>
           </Button>
           <ProgramDeleteButton programId={program.id} programName={trainingName(program.name)} />
         </CardContent>

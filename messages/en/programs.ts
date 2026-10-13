@@ -42,6 +42,10 @@ export const programs = {
   deleteDescription:
     '“{name}” will be deleted with its sessions and programmed exercises. Past training history will be kept without an associated program.',
   deleting: 'Deleting...',
+  duplicate: 'Duplicate',
+  duplicated: 'Program duplicated.',
+  duplicateError: 'Could not duplicate the program.',
+  copyName: '{name} (copy)',
   templateCreated: 'Program created from template.',
   templateUse: 'Use this template',
   dayCount: '{count, plural, one {# day} other {# days}}',
@@ -64,6 +68,10 @@ export const programs = {
     supersetLimit: 'Superset limit reached for this session.',
     supersetPaired: 'Exercises paired as a superset.',
     supersetRemoved: 'Superset removed.',
+    duplicate: 'Duplicate',
+    duplicated: 'Session duplicated.',
+    duplicateError: 'Could not duplicate the session.',
+    copyName: '{name} (copy)',
   },
   exercise: {
     actions: 'Exercise actions',

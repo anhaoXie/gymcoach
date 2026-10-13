@@ -20,6 +20,7 @@ import {
 import { formatWeight } from '@/lib/units';
 import { formatWorkoutText } from '@/lib/workout-text';
 import { CopyWorkoutButton } from '@/components/history/copy-workout-button';
+import { SaveAsWorkoutButton } from '@/components/history/save-as-workout-button';
 import { DeleteSessionButton } from '@/components/history/delete-session-button';
 import { ActivityTrackChart } from '@/components/history/activity-track-chart';
 import { TrackDecoupling } from '@/components/history/track-decoupling';
@@ -173,6 +174,18 @@ export default async function HistorySessionPage(props: Params) {
         )
       : null;
 
+  // "Save as a workout" (issue #394): a FINISHED session with at least one
+  // working set, saved into one of the trainee's programs.
+  const canSaveAsWorkout =
+    session.finishedAt != null && session.sets.some((s) => !s.isWarmup && !s.isDropSet);
+  const programs = canSaveAsWorkout
+    ? await db.program.findMany({
+        where: { userId: auth.userId },
+        orderBy: [{ isActive: 'desc' }, { createdAt: 'desc' }],
+        select: { id: true, name: true },
+      })
+    : [];
+
   return (
     <main className="flex-1 px-4 py-6">
       <div className="mx-auto flex max-w-2xl flex-col gap-4">
@@ -185,6 +198,17 @@ export default async function HistorySessionPage(props: Params) {
           </Button>
           <div className="flex flex-wrap items-center justify-end gap-2">
             {workoutText && <CopyWorkoutButton text={workoutText} />}
+            {canSaveAsWorkout && (
+              <SaveAsWorkoutButton
+                sessionId={session.id}
+                programs={programs.map((p) => ({
+                  id: p.id,
+                  name: getTrainingDisplayName(p.name, locale),
+                }))}
+                defaultProgramId={session.programId}
+                defaultName={sessionTitle}
+              />
+            )}
             {hasCardio && (
               <Button asChild variant="outline" size="sm">
                 <a href={`/api/cardio/tcx?sessionId=${session.id}`} download>

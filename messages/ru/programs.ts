@@ -47,6 +47,10 @@ export const programs = {
   deleteDescription:
     'Программа «{name}» будет удалена вместе с запланированными тренировками и упражнениями. Выполненная история сохранится без связи с программой.',
   deleting: 'Удаление...',
+  duplicate: 'Дублировать',
+  duplicated: 'Программа продублирована.',
+  duplicateError: 'Не удалось продублировать программу.',
+  copyName: '{name} (копия)',
   templateCreated: 'Программа создана из шаблона.',
   templateUse: 'Использовать шаблон',
   dayCount: '{count, plural, one {# день} few {# дня} many {# дней} other {# дня}}',
@@ -69,6 +73,10 @@ export const programs = {
     supersetLimit: 'Достигнут предел суперсетов для этой тренировки.',
     supersetPaired: 'Упражнения объединены в суперсет.',
     supersetRemoved: 'Суперсет удалён.',
+    duplicate: 'Дублировать',
+    duplicated: 'Тренировка продублирована.',
+    duplicateError: 'Не удалось продублировать тренировку.',
+    copyName: '{name} (копия)',
   },
   exercise: {
     actions: 'Действия с упражнением',
