@@ -238,6 +238,43 @@ describe('ExercisesView favourites (issue #404)', () => {
     await waitFor(() => expect(pending).not.toHaveAttribute('aria-disabled'));
   });
 
+  it('ignores a tap on the neighbouring star that slid under the finger', async () => {
+    let resolve: (value: Response) => void = () => {};
+    const fetchMock = vi.fn(
+      () =>
+        new Promise<Response>((r) => {
+          resolve = r;
+        }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    const user = userEvent.setup({ delay: null });
+    render(<ExercisesView exercises={catalog} />);
+
+    await user.click(screen.getByRole('button', { name: 'Add Barbell Bench Press to favourites' }));
+    const neighbour = screen.getByRole('button', {
+      name: 'Add Romanian Deadlift to favourites',
+    });
+    expect(neighbour).toHaveAttribute('aria-disabled', 'true');
+    await user.click(neighbour);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    resolve({ ok: true, status: 200 } as Response);
+    await waitFor(() => expect(neighbour).not.toHaveAttribute('aria-disabled'));
+  });
+
+  it('releases the guard when the save throws (offline)', async () => {
+    const fetchMock = vi.fn().mockRejectedValueOnce(new TypeError('offline'));
+    vi.stubGlobal('fetch', fetchMock);
+    const user = userEvent.setup({ delay: null });
+    render(<ExercisesView exercises={catalog} />);
+
+    await user.click(screen.getByRole('button', { name: 'Add Barbell Bench Press to favourites' }));
+    const star = await screen.findByRole('button', {
+      name: 'Add Barbell Bench Press to favourites',
+    });
+    await waitFor(() => expect(star).not.toHaveAttribute('aria-disabled'));
+  });
+
   it('restores the star shown before a failed tap, not the stale server value', async () => {
     const fetchMock = vi
       .fn()

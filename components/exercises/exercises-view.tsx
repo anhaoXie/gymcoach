@@ -35,9 +35,9 @@ export function ExercisesView({ exercises }: ExercisesViewProps) {
   // Stars toggled on this page before the refreshed list arrives (issue #404),
   // so a starred row moves to the favourites section at once.
   const [favoriteOverrides, setFavoriteOverrides] = useState<Record<string, boolean>>({});
-  // One request per star at a time: a second tap while the first is in flight
-  // is ignored, so a double tap cannot race two PATCHes or land on the row that
-  // slid under the finger after the reorder.
+  // One star request at a time across the whole list: the reorder slides
+  // another row's star under the finger, so a double tap must be ignored on
+  // every star, not only the one being saved, and two PATCHes never race.
   const [pendingFavorites, setPendingFavorites] = useState<ReadonlySet<string>>(new Set());
   const pendingRef = useRef(new Set<string>());
   // Starring moves the row to another section, which remounts it; focus
@@ -82,7 +82,7 @@ export function ExercisesView({ exercises }: ExercisesViewProps) {
   );
 
   async function toggleFavorite(exercise: Exercise) {
-    if (pendingRef.current.has(exercise.id)) return;
+    if (pendingRef.current.size > 0) return;
     const next = !exercise.isFavorite;
     const hadOverride = exercise.id in favoriteOverrides;
     const previous = favoriteOverrides[exercise.id];
@@ -104,7 +104,11 @@ export function ExercisesView({ exercises }: ExercisesViewProps) {
         else delete rest[exercise.id];
         return rest;
       });
-      setFocusStarId(exercise.id);
+      // Bring focus back to the star only if the user has not moved on.
+      const active = document.activeElement;
+      if (!active || active === document.body || active === starRefs.current.get(exercise.id)) {
+        setFocusStarId(exercise.id);
+      }
       toast.error(t('favoriteError'));
       return;
     }
@@ -116,10 +120,11 @@ export function ExercisesView({ exercises }: ExercisesViewProps) {
       exercise: ex,
       onEdit: () => setEditing(ex),
       onToggleFavorite: () => void toggleFavorite(ex),
-      favoritePending: pendingFavorites.has(ex.id),
+      favoritePending: pendingFavorites.size > 0,
       starRef: (node: HTMLButtonElement | null) => {
+        // React detaches the old node before attaching the moved one.
         if (node) starRefs.current.set(ex.id, node);
-        else if (starRefs.current.get(ex.id) === node) starRefs.current.delete(ex.id);
+        else starRefs.current.delete(ex.id);
       },
     };
   }
@@ -290,7 +295,7 @@ function ExerciseRow({
             aria-disabled={favoritePending || undefined}
             aria-pressed={exercise.isFavorite}
             aria-label={t(exercise.isFavorite ? 'unfavorite' : 'favorite', { name: displayName })}
-            className="min-h-tap min-w-tap"
+            className="min-h-tap min-w-tap aria-disabled:opacity-50"
           >
             <Star
               className={cn('size-4', exercise.isFavorite && 'fill-current text-amber-500')}
