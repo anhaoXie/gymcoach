@@ -1,8 +1,9 @@
 # Autonomous development implementation roadmap
 
-Status: proposed, not implemented. Baseline inspection: 2026-10-13, commit
-`dd0fcf7`. Update milestone status with implementation PRs and validation evidence
-as work lands.
+Status: in progress. Milestone 1 is partly delivered (run-record schemas and a
+first baseline from public GitHub data); the other milestones are proposed, not
+implemented. Baseline inspection: 2026-10-13, commit `dd0fcf7`. Update milestone
+status with implementation PRs and validation evidence as work lands.
 
 The objective is to make GymCoach's autonomous maintenance reproducible,
 measurable, and capable of testing improvements to its own working methods.
@@ -72,14 +73,28 @@ grading code, or reserved evaluation data that determine its own acceptance.
 
 ## Milestone 1 Record a measurable baseline
 
-- [ ] Define versioned task, run, review, and outcome schemas.
+- [x] Define versioned task, run, review, and outcome schemas.
+      Evidence: [`automation/records/schema.ts`](../../automation/records/schema.ts)
+      and its tests.
 - [ ] Record task ID, source provenance, base/head SHA, stage, attempts, timestamps,
       runner/model configuration, skill version, verification evidence, and outcome.
+      Partial: reconstructed after the fact from GitHub per PR head
+      ([`automation/baseline/`](../../automation/baseline/)); the model comes from
+      commit trailers, and skill version and in-session attempts are unknown until
+      the runner records them at run time.
 - [ ] Record token usage, estimated cost, duration, cache usage where available,
       and human interventions. Mark unavailable values as unknown, never zero.
+      Partial: the schema and report keep them unknown with a reason; nothing
+      records them yet.
 - [ ] Link post-merge regressions, reverts, and follow-up fixes to the originating
       run using a declared observation window. Count aborted and failed runs too.
-- [ ] Capture a baseline using the current workflow before optimizing it.
+      Partial: reverts and referencing issues or fix PRs are linked by heuristic
+      within the window, and closed-unmerged PRs are counted; work abandoned before
+      a PR opened is invisible.
+- [x] Capture a baseline using the current workflow before optimizing it.
+      Evidence: [`baseline/2026-10-13/report.md`](baseline/2026-10-13/report.md)
+      (77 PR runs since 2026-08-14). Limits: PR outcomes and CI evidence only;
+      cost, tokens, agent duration and interventions are unknown for every run.
 
 Store task state and artifacts outside mutable worker checkouts. Export sanitized
 JSON/JSONL and a concise report; keep credentials, personal training data, and raw

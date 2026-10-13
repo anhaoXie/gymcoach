@@ -13,7 +13,8 @@ export default defineConfig({
   },
   test: {
     // Logic tests live next to lib/ code, component tests under components/.
-    include: ['lib/**/*.test.ts', 'components/**/*.test.{ts,tsx}'],
+    // automation/ holds the maintainer's run-record tooling, kept apart from the app.
+    include: ['lib/**/*.test.ts', 'components/**/*.test.{ts,tsx}', 'automation/**/*.test.ts'],
     // jsdom covers both: pure logic tests run fine in it too.
     environment: 'jsdom',
     setupFiles: ['./vitest.setup.ts'],

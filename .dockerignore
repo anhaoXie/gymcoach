@@ -12,5 +12,6 @@ docs
 *.md
 docker/postgres-data
 coverage
+automation
 .turbo
 .vercel

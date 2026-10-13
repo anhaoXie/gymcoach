@@ -59,7 +59,7 @@ The journal also records occasions when the procedure failed.
 | Isolation              | Worktree procedures and container verification scripts | Enforced worker isolation and separate publishing authority   |
 | Limits                 | Documented attempt, merge, and turn-budget limits      | Runtime accounting and enforced aggregate limits              |
 | Memory                 | Git, issues, run journal, lessons, skills              | Indexed retrieval and executable fixes for recurring mistakes |
-| Agent evaluation       | Review history and individual run reports              | Repeatable task benchmark with a measured baseline            |
+| Agent evaluation       | Run reports and a versioned PR-outcome baseline        | Repeatable task benchmark with a measured baseline            |
 | Improvement of methods | Lessons promoted into procedures                       | Candidate procedures compared with the current version        |
 | Laya                   | Not integrated                                         | Optional classification experiment after baseline evaluation  |
 
@@ -97,9 +97,12 @@ L29 describes why a fixup needs a fresh review; L36 records checking that a new
 test actually fails without the fix. These incidents guide the move from written
 rules to executable controls.
 
-We do not yet publish an aggregate autonomy rate, cost per successful task, or
-benchmark improvement score. The roadmap starts by defining and measuring those
-outcomes. A merged PR and a green test suite alone do not establish that a new
+A first [baseline report](baseline/2026-10-13/report.md) counts PR outcomes, CI
+evidence, reverts and follow-ups from public GitHub data, using the versioned
+records in [`automation/`](../../automation/README.md). It records cost, tokens,
+agent duration and human interventions as unknown: the current workflow does not
+capture them. We do not yet publish an autonomy rate, cost per successful task, or
+benchmark improvement score. A merged PR and a green test suite alone do not establish that a new
 agent configuration is better than the previous one.
 
 ## Try the workflow in another repository

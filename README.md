@@ -109,6 +109,7 @@ claim that the agent already improves itself reliably.
 [**How autonomous development works**](docs/loops/README.md) ·
 [Implementation roadmap](docs/loops/11-autonomous-development-roadmap.md) ·
 [Run journal](docs/loops/autonomy-log.md) ·
+[Baseline report](docs/loops/baseline/2026-10-13/report.md) ·
 [Lessons from failures](docs/loops/lessons.md)
 
 ## Features
