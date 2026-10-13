@@ -22,7 +22,9 @@ export const MAX_COPY_NAME_LENGTH = 120;
 // English one when the client sends no name.
 export function copyName(name: string, suffix = '(copy)'): string {
   const tail = ` ${suffix}`;
-  return `${name.slice(0, MAX_COPY_NAME_LENGTH - tail.length).trimEnd()}${tail}`;
+  // Drop a lone high surrogate left by the cut, so an emoji is never halved.
+  const head = name.slice(0, MAX_COPY_NAME_LENGTH - tail.length).replace(/[\uD800-\uDBFF]$/, '');
+  return `${head.trimEnd()}${tail}`;
 }
 
 // --- Save a finished session as a workout -----------------------------------

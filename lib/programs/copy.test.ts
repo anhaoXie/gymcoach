@@ -55,6 +55,12 @@ describe('copyName', () => {
     expect(long.length).toBeLessThanOrEqual(120);
     expect(long.endsWith(' (копия)')).toBe(true);
   });
+
+  it('trims a space left at the cut and never halves an emoji', () => {
+    // ' (copy)' is 7 characters, so 113 of the name are kept.
+    expect(copyName(`${'a'.repeat(112)} next`)).toBe(`${'a'.repeat(112)} (copy)`);
+    expect(copyName(`${'a'.repeat(112)}\u{1F600}zz`)).toBe(`${'a'.repeat(112)} (copy)`);
+  });
 });
 
 function set(overrides: Partial<SessionSetForWorkout>): SessionSetForWorkout {
