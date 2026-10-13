@@ -233,6 +233,7 @@ export const session = {
       'Remove this exercise from your saved program, for this and future sessions.',
     searchExercises: 'Search exercises',
     noExercises: 'No matching exercises.',
+    favorite: 'favourite',
     replaceConfirm:
       'This replaces the exercise in your saved program, so future sessions change too. Replace it?',
     replaceLoggedWarning:

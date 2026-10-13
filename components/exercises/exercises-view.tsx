@@ -1,8 +1,10 @@
 'use client';
 
 import { useMemo, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { useTranslations } from 'next-intl';
-import { Plus, Pencil, Search } from 'lucide-react';
+import { Plus, Pencil, Search, Star } from 'lucide-react';
+import { toast } from 'sonner';
 import type { Exercise, MuscleGroup } from '@/lib/prisma-client';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -12,6 +14,7 @@ import { ExerciseFormDialog } from '@/components/exercises/exercise-form-dialog'
 import { ExerciseMediaDialog } from '@/components/exercises/exercise-media-dialog';
 import { DeleteExerciseButton } from '@/components/exercises/delete-exercise-button';
 import { useExerciseName } from '@/components/shared/use-exercise-name';
+import { cn } from '@/lib/utils';
 import {
   equipmentTypeMessageKeys,
   exerciseCategoryMessageKeys,
@@ -29,19 +32,54 @@ export function ExercisesView({ exercises }: ExercisesViewProps) {
   const [createOpen, setCreateOpen] = useState(false);
   const [editing, setEditing] = useState<Exercise | null>(null);
   const [query, setQuery] = useState('');
+  // Stars toggled on this page before the refreshed list arrives (issue #404),
+  // so a starred row moves to the favourites section at once.
+  const [favoriteOverrides, setFavoriteOverrides] = useState<Record<string, boolean>>({});
+  const router = useRouter();
+
+  const withFavorites = useMemo(
+    () =>
+      exercises.map((ex) =>
+        ex.id in favoriteOverrides ? { ...ex, isFavorite: favoriteOverrides[ex.id]! } : ex,
+      ),
+    [exercises, favoriteOverrides],
+  );
+
+  async function toggleFavorite(exercise: Exercise) {
+    const next = !exercise.isFavorite;
+    setFavoriteOverrides((current) => ({ ...current, [exercise.id]: next }));
+    const res = await fetch(`/api/exercises/${exercise.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ isFavorite: next }),
+    }).catch(() => null);
+    if (!res?.ok) {
+      setFavoriteOverrides((current) => {
+        const rest = { ...current };
+        delete rest[exercise.id];
+        return rest;
+      });
+      toast.error(t('favoriteError'));
+      return;
+    }
+    router.refresh();
+  }
 
   // Case-insensitive substring match on the exercise name. The query only
   // narrows the already-loaded list (no API call); an empty query shows
   // everything, preserving the original behaviour.
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (!q) return exercises;
-    return exercises.filter(
+    if (!q) return withFavorites;
+    return withFavorites.filter(
       (ex) => ex.name.toLowerCase().includes(q) || exerciseName(ex.name).toLowerCase().includes(q),
     );
-  }, [exerciseName, exercises, query]);
+  }, [exerciseName, withFavorites, query]);
 
-  const grouped = useMemo(() => groupByMuscle(filtered), [filtered]);
+  // Favourites are pinned in their own section at the top and not repeated in
+  // their muscle group below.
+  const favorites = useMemo(() => filtered.filter((ex) => ex.isFavorite), [filtered]);
+  const grouped = useMemo(() => groupByMuscle(filtered.filter((ex) => !ex.isFavorite)), [filtered]);
 
   return (
     <div className="mx-auto flex max-w-3xl flex-col gap-6">
@@ -88,6 +126,26 @@ export function ExercisesView({ exercises }: ExercisesViewProps) {
         </Card>
       ) : (
         <div className="flex flex-col gap-6">
+          {favorites.length > 0 && (
+            <section className="flex flex-col gap-2" aria-labelledby="exercise-favorites-heading">
+              <h2
+                id="exercise-favorites-heading"
+                className="text-sm font-semibold uppercase tracking-wide text-muted-foreground"
+              >
+                {t('favorites')}
+              </h2>
+              <div className="flex flex-col gap-2">
+                {favorites.map((ex) => (
+                  <ExerciseRow
+                    key={ex.id}
+                    exercise={ex}
+                    onEdit={() => setEditing(ex)}
+                    onToggleFavorite={() => void toggleFavorite(ex)}
+                  />
+                ))}
+              </div>
+            </section>
+          )}
           {Object.entries(grouped).map(([group, list]) => (
             <section key={group} className="flex flex-col gap-2">
               <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
@@ -95,7 +153,12 @@ export function ExercisesView({ exercises }: ExercisesViewProps) {
               </h2>
               <div className="flex flex-col gap-2">
                 {list.map((ex) => (
-                  <ExerciseRow key={ex.id} exercise={ex} onEdit={() => setEditing(ex)} />
+                  <ExerciseRow
+                    key={ex.id}
+                    exercise={ex}
+                    onEdit={() => setEditing(ex)}
+                    onToggleFavorite={() => void toggleFavorite(ex)}
+                  />
                 ))}
               </div>
             </section>
@@ -116,7 +179,15 @@ export function ExercisesView({ exercises }: ExercisesViewProps) {
   );
 }
 
-function ExerciseRow({ exercise, onEdit }: { exercise: Exercise; onEdit: () => void }) {
+function ExerciseRow({
+  exercise,
+  onEdit,
+  onToggleFavorite,
+}: {
+  exercise: Exercise;
+  onEdit: () => void;
+  onToggleFavorite: () => void;
+}) {
   const t = useTranslations('exercises');
   const exerciseName = useExerciseName();
   const displayName = exerciseName(exercise.name);
@@ -156,6 +227,19 @@ function ExerciseRow({ exercise, onEdit }: { exercise: Exercise; onEdit: () => v
           )}
         </div>
         <div className="-mb-2 -mr-2 -mt-4 flex w-full shrink-0 items-center justify-end sm:-mt-2 sm:w-auto">
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={onToggleFavorite}
+            aria-pressed={exercise.isFavorite}
+            aria-label={t(exercise.isFavorite ? 'unfavorite' : 'favorite', { name: displayName })}
+            className="min-h-tap min-w-tap"
+          >
+            <Star
+              className={cn('size-4', exercise.isFavorite && 'fill-current text-amber-500')}
+              aria-hidden
+            />
+          </Button>
           <Button
             variant="ghost"
             size="icon"

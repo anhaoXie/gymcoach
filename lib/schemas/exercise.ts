@@ -25,6 +25,10 @@ export const exerciseInputSchema = z.object({
 
 export type ExerciseInput = z.infer<typeof exerciseInputSchema>;
 
+// Starring an exercise (issue #404). A strict boolean: no coercion, so a
+// string "false" is a 400 instead of a favourite.
+export const exerciseFavoriteSchema = z.object({ isFavorite: z.boolean() });
+
 export const MUSCLE_GROUP_LABELS: Record<MuscleGroup, string> = {
   CHEST: 'Chest',
   BACK_WIDTH: 'Back (width)',

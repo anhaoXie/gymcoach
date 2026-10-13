@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-import { exerciseInputSchema } from '@/lib/schemas/exercise';
+import { exerciseFavoriteSchema, exerciseInputSchema } from '@/lib/schemas/exercise';
 import { ApiError, handleApiError, parseJsonBody, requireApiUserId } from '@/lib/api';
 
 interface Params {
@@ -31,6 +31,24 @@ export async function PUT(req: Request, props: Params) {
     const updated = await db.exercise.update({
       where: { id: params.id, userId },
       data: { ...data, notes: data.notes ?? null },
+    });
+    return NextResponse.json(updated);
+  } catch (err) {
+    return handleApiError(err);
+  }
+}
+
+// Star or unstar an exercise (issue #404). Kept apart from PUT so the edit
+// form, which does not send it, never resets the flag.
+export async function PATCH(req: Request, props: Params) {
+  const params = await props.params;
+  try {
+    const userId = await requireApiUserId();
+    const data = await parseJsonBody(req, exerciseFavoriteSchema);
+    const updated = await db.exercise.update({
+      where: { id: params.id, userId },
+      data: { isFavorite: data.isFavorite },
+      select: { id: true, isFavorite: true },
     });
     return NextResponse.json(updated);
   } catch (err) {

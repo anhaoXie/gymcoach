@@ -16,6 +16,7 @@ import {
 import {
   GET as getExercise,
   PUT as putExercise,
+  PATCH as patchExercise,
   DELETE as deleteExercise,
 } from '@/app/api/exercises/[id]/route';
 import {
@@ -211,7 +212,7 @@ describe('route ownership: /api/exercises/[id]', () => {
     expect((await res.json()).id).toBe(exercise.id);
   });
 
-  it('returns 404 to a stranger on GET, PUT and DELETE and leaves the exercise intact', async () => {
+  it('returns 404 to a stranger on GET, PUT, PATCH and DELETE and leaves the exercise intact', async () => {
     const { b, exercise } = await seed();
     actAs(b.id);
     expect((await getExercise(new Request('http://t/api'), idParams(exercise.id))).status).toBe(404);
@@ -220,11 +221,17 @@ describe('route ownership: /api/exercises/[id]', () => {
       idParams(exercise.id),
     );
     expect(put.status).toBe(404);
+    // Starring (issue #404) is scoped the same way.
+    expect(
+      (await patchExercise(jsonReq('PATCH', { isFavorite: true }), idParams(exercise.id))).status,
+    ).toBe(404);
     expect(
       (await deleteExercise(new Request('http://t/api', { method: 'DELETE' }), idParams(exercise.id)))
         .status,
     ).toBe(404);
-    expect((await db.exercise.findUnique({ where: { id: exercise.id } }))?.name).toBe('Bench');
+    const after = await db.exercise.findUnique({ where: { id: exercise.id } });
+    expect(after?.name).toBe('Bench');
+    expect(after?.isFavorite).toBe(false);
   });
 });
 

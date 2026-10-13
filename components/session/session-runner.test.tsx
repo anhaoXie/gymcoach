@@ -132,6 +132,7 @@ function exercise(id: string, name: string): Exercise {
     notes: null,
     usesBodyweight: false,
     equipmentType: 'BARBELL',
+    isFavorite: false,
     createdAt: new Date(),
   };
 }

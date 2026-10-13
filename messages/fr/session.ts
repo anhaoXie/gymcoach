@@ -239,6 +239,7 @@ export const session = {
       'Supprimez cet exercice de votre programme enregistré, pour cette séance et les suivantes.',
     searchExercises: 'Rechercher des exercices',
     noExercises: 'Aucun exercice correspondant.',
+    favorite: 'favori',
     replaceConfirm:
       'L’exercice sera remplacé dans votre programme enregistré : les prochaines séances changent aussi. Le remplacer ?',
     replaceLoggedWarning:

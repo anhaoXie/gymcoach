@@ -161,6 +161,9 @@ model Exercise {
   usesBodyweight    Boolean                @default(false)
   // Determines which saved-gym inventory constrains suggested loads.
   equipmentType     EquipmentType          @default(OTHER)
+  // Starred by the user: pinned at the top of the catalog and of the
+  // in-session add/replace pickers (issue #404).
+  isFavorite        Boolean                @default(false)
   createdAt         DateTime               @default(now())
   programExercises  ProgramExercise[]
   sets              Set[]

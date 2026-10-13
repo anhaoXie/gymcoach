@@ -1,10 +1,11 @@
 'use client';
 
 import { useId, useMemo, useRef, useState } from 'react';
-import { Plus, Replace, Search, Trash2 } from 'lucide-react';
+import { Plus, Replace, Search, Star, Trash2 } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import { toast } from 'sonner';
 import type { Exercise, ProgramExercise } from '@/lib/prisma-client';
+import { favoritesFirst } from '@/lib/exercise-favorites';
 import { defaultIntraSetConfig } from '@/lib/intra-set-autoregulation';
 import { useExerciseName } from '@/components/shared/use-exercise-name';
 import { Button } from '@/components/ui/button';
@@ -16,7 +17,7 @@ type SessionProgramExercise = ProgramExercise & { exercise: Exercise };
 // so the rest of each exercise row (notes, owner id) stays on the server.
 export type SessionCatalogExercise = Pick<
   Exercise,
-  'id' | 'name' | 'muscleGroup' | 'category' | 'usesBodyweight' | 'defaultRestSec'
+  'id' | 'name' | 'muscleGroup' | 'category' | 'usesBodyweight' | 'defaultRestSec' | 'isFavorite'
 >;
 type View = 'actions' | 'replace' | 'add' | 'removeConfirm';
 
@@ -121,11 +122,14 @@ export function SessionExerciseMenu({
               !existingExerciseIds.has(exercise.id) &&
               exercise.muscleGroup === programExercise.exercise.muscleGroup,
           );
-    if (!needle) return source;
-    return source.filter(
-      (exercise) =>
-        exercise.name.toLocaleLowerCase().includes(needle) ||
-        exerciseName(exercise.name).toLocaleLowerCase().includes(needle),
+    // Favourites lead the list (issue #404), search or not.
+    if (!needle) return favoritesFirst(source);
+    return favoritesFirst(
+      source.filter(
+        (exercise) =>
+          exercise.name.toLocaleLowerCase().includes(needle) ||
+          exerciseName(exercise.name).toLocaleLowerCase().includes(needle),
+      ),
     );
   }, [
     catalog,
@@ -392,6 +396,12 @@ export function SessionExerciseMenu({
                       view === 'replace' ? requestReplacement(exercise) : void addExercise(exercise)
                     }
                   >
+                    {exercise.isFavorite && (
+                      <>
+                        <Star className="size-4 fill-current text-amber-500" aria-hidden />
+                        <span className="sr-only">{t('favorite')}: </span>
+                      </>
+                    )}
                     {exerciseName(exercise.name)}
                   </Button>
                 ))
