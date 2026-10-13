@@ -26,6 +26,17 @@ export function mapToolError(err: unknown): Error {
     return new Error('Server error.');
   }
 
+  // The remaining Prisma classes carry query or connection details too: an
+  // initialization error can name the database host (issue #433).
+  if (
+    err instanceof Prisma.PrismaClientUnknownRequestError ||
+    err instanceof Prisma.PrismaClientInitializationError ||
+    err instanceof Prisma.PrismaClientRustPanicError
+  ) {
+    console.error('[mcp] Prisma error:', err.name, err.message);
+    return new Error('Server error.');
+  }
+
   return err instanceof Error ? err : new Error(String(err));
 }
 
