@@ -115,7 +115,9 @@ describe('ExercisesView catalog card at mobile width (issue #330)', () => {
         ]}
       />,
     );
-    const withMedia = screen.getByRole('button', { name: 'View technique for Barbell Bench Press' });
+    const withMedia = screen.getByRole('button', {
+      name: 'View technique for Barbell Bench Press',
+    });
     const withoutMedia = screen.getByRole('button', {
       name: 'View technique for Future custom movement',
     });
@@ -197,5 +199,75 @@ describe('ExercisesView favourites (issue #404)', () => {
       unmount();
       vi.clearAllMocks();
     }
+  });
+
+  it('keeps focus on the star after its row moves to the favourites section', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, status: 200 } as Response));
+    const user = userEvent.setup({ delay: null });
+    render(<ExercisesView exercises={catalog} />);
+
+    await user.click(screen.getByRole('button', { name: 'Add Barbell Bench Press to favourites' }));
+    await waitFor(() =>
+      expect(document.activeElement).toBe(
+        screen.getByRole('button', { name: 'Remove Barbell Bench Press from favourites' }),
+      ),
+    );
+  });
+
+  it('ignores a second tap on a star while its save is in flight', async () => {
+    let resolve: (value: Response) => void = () => {};
+    const fetchMock = vi.fn(
+      () =>
+        new Promise<Response>((r) => {
+          resolve = r;
+        }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    const user = userEvent.setup({ delay: null });
+    render(<ExercisesView exercises={catalog} />);
+
+    await user.click(screen.getByRole('button', { name: 'Add Barbell Bench Press to favourites' }));
+    const pending = screen.getByRole('button', {
+      name: 'Remove Barbell Bench Press from favourites',
+    });
+    expect(pending).toHaveAttribute('aria-disabled', 'true');
+    await user.click(pending);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    resolve({ ok: true, status: 200 } as Response);
+    await waitFor(() => expect(pending).not.toHaveAttribute('aria-disabled'));
+  });
+
+  it('restores the star shown before a failed tap, not the stale server value', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({ ok: true, status: 200 } as Response)
+      .mockResolvedValueOnce({ ok: false, status: 500 } as Response);
+    vi.stubGlobal('fetch', fetchMock);
+    const user = userEvent.setup({ delay: null });
+    // The refreshed list never arrives here, so the prop still says unstarred.
+    render(<ExercisesView exercises={catalog} />);
+
+    await user.click(screen.getByRole('button', { name: 'Add Barbell Bench Press to favourites' }));
+    await waitFor(() => expect(router.refresh).toHaveBeenCalled());
+    await user.click(
+      screen.getByRole('button', { name: 'Remove Barbell Bench Press from favourites' }),
+    );
+    await waitFor(() =>
+      expect(toast.error).toHaveBeenCalledWith('Could not update your favourites.'),
+    );
+    expect(
+      within(screen.getByRole('region', { name: 'Favourites' })).getByText('Barbell Bench Press'),
+    ).toBeInTheDocument();
+  });
+
+  it('hides a favourite that does not match the search', async () => {
+    const user = userEvent.setup({ delay: null });
+    render(<ExercisesView exercises={catalog} />);
+
+    await user.type(screen.getByRole('searchbox'), 'bench');
+    expect(screen.queryByText('Back Squat')).not.toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: 'Favourites' })).not.toBeInTheDocument();
+    expect(screen.getByText('Barbell Bench Press')).toBeInTheDocument();
   });
 });

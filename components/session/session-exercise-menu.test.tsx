@@ -394,7 +394,7 @@ describe('SessionExerciseMenu', () => {
     const pressChoices = () =>
       screen
         .getAllByRole('button')
-        .map((button) => button.textContent ?? '')
+        .map((button) => button.getAttribute('aria-label') ?? button.textContent ?? '')
         .filter((name) => name.includes('Press'));
 
     fireEvent.click(screen.getByRole('button', { name: 'Replace exercise' }));
@@ -404,6 +404,10 @@ describe('SessionExerciseMenu', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Back' }));
     fireEvent.click(screen.getByRole('button', { name: 'Add exercise' }));
+    expect(pressChoices()).toEqual(['favourite: Decline Press', 'Incline Press']);
+
+    // Favourites stay first among search results too.
+    fireEvent.change(screen.getByLabelText('Search exercises'), { target: { value: 'line' } });
     expect(pressChoices()).toEqual(['favourite: Decline Press', 'Incline Press']);
   });
 });

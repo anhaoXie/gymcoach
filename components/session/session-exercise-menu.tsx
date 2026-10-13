@@ -395,12 +395,14 @@ export function SessionExerciseMenu({
                     onClick={() =>
                       view === 'replace' ? requestReplacement(exercise) : void addExercise(exercise)
                     }
+                    aria-label={
+                      exercise.isFavorite
+                        ? t('favoriteChoice', { name: exerciseName(exercise.name) })
+                        : undefined
+                    }
                   >
                     {exercise.isFavorite && (
-                      <>
-                        <Star className="size-4 fill-current text-amber-500" aria-hidden />
-                        <span className="sr-only">{t('favorite')}: </span>
-                      </>
+                      <Star className="size-4 fill-current text-amber-500" aria-hidden />
                     )}
                     {exerciseName(exercise.name)}
                   </Button>
