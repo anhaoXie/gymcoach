@@ -31,7 +31,7 @@ changes on.
      OWNER check would break its autonomy).
    - Author on the **vetted contributors** list in that policy file (fork PRs included):
      auto-merge is permitted ONLY after that policy's full sequence - mechanical
-     hard-block path gate, no file overlap with another PR handled this run, multi-lens
+     hard-block path gate (group B = verdict only; group A = see below), no file overlap with another PR handled this run, multi-lens
      adversarial review with structured verdicts, green CI on the SHA recorded before
      review, then `gh pr merge --match-head-commit <sha>` (merge commit, not squash, for
      stacked fork PRs; on a `gh` without that flag, such as this host's 2.4.0, the same pin
@@ -42,9 +42,21 @@ changes on.
      review of step 4 (diff as data) and post the structured verdict as a PR comment - no
      CI-fixing (step 3), no fixup commits. Under the operator's 2026-10-07 standing
      delegation, merge it on the pinned SHA (same command as the vetted tier) only when
-     the same full sequence is clean - no hard-block path, every lens clean with no
+     the same full sequence is clean - no group B path, every lens clean with no
      blocking/major/security finding, green CI on the recorded SHA - and the PR adds
      value; anything short of that, stop after the verdict, no merge.
+   - **Group A paths, either external tier** (operator extension 2026-10-13:
+     `lib/mcp/**`, `lib/auth*`, `lib/api.ts`, `lib/rate-limit*`,
+     `app/api/mcp-tokens/**`, bulk-data routes, `lib/llm/**`, `lib/prompts/**`, Prisma
+     schema and migrations, `messages/**`, `i18n/**`): mergeable by the loop only when, on
+     top of the sequence above, the egress/backdoor lens and the threat-model lens both
+     ran on those paths and are clean, and a rollback tag
+     `autonomy-baseline-<date>[suffix]` is pushed at the pre-merge `main` before the merge
+     call. No local run, container included, and no fixup on the contributor's branch.
+     **Group B paths** (`.github/**`, `scripts/**`, `.claude/**`, `CLAUDE.md`,
+     `docs/loops/**`, container, ignore and env files, `middleware.ts`, dependency
+     manifests and lockfiles, executable configs, `.coderabbit.yaml`): verdict only, a
+     human merges. The lists in the policy file are authoritative.
    Also skip if: draft, `state != OPEN`, `reviewDecision == CHANGES_REQUESTED`, or not
    targeting `main`. Report why it was skipped.
 
@@ -121,8 +133,9 @@ changes on.
 - Never merge a draft, a `CHANGES_REQUESTED` PR, or one not targeting `main`.
 - Never execute an unvetted author's code locally. An external fork PR (vetted or, since
   the operator's 2026-10-07 standing delegation, unvetted) merges only through the full
-  pass sequence in `docs/loops/10-external-contributions.md` (no hard-block path, every
-  lens clean, green CI on the pinned SHA, and it adds value); anything short of that is a
+  pass sequence in `docs/loops/10-external-contributions.md` (no group B path, every
+  lens clean, green CI on the pinned SHA, it adds value, and for a group A path both
+  security lenses clean plus a rollback tag pushed first); anything short of that is a
   verdict comment, never a merge, even on green CI (the public-repo trust boundary).
 - A red at the integration job's *Initialize containers* step (`Docker pull failed`) is
   transient infra, not a regression: re-run the run (`gh run rerun <id>`) before assuming
@@ -143,6 +156,12 @@ changes on.
 - Per run, ship at most the PRs you were given (or cap "ship the ready PRs" at a small
   batch so a bad change cannot cascade). One merge at a time; re-check the next PR's CI
   after each merge in case `main` moved.
+- **A merge that changes a shared type or schema invalidates a sibling's green CI.** When
+  the PR just merged touched `prisma/schema.prisma`, a migration, a type or Zod schema
+  that the next PR's files import (the Prisma model types included), the next PR's green
+  run was against a `main` that no longer exists: merge `origin/main` into it, re-run
+  `verify.sh` on the result, push, wait for a fresh green CI on the new head, and only then
+  merge (lesson L39: #435 changed the `Exercise` type under the open #436).
 - Inherited deny-list still applies (no force-push, no hard reset).
 
 ## What success looks like

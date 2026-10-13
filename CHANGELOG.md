@@ -24,8 +24,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   within 0.25 kg, and says in words whether the trend is moving toward or away
   from the goal. Stored as one nullable column (additive migration); backups
   move to format v6 and older backups still import (#428, closes #398).
+- Favourite exercises: a star on each exercise of the catalog marks it as a
+  favourite, favourites get their own section at the top of the catalog and
+  come first in the in-session add and replace pickers. Stored as one boolean
+  column defaulting to false (additive migration), set through
+  `PATCH /api/exercises/[id]`; backups move to format v7 and older backups
+  still import (#435, closes #404).
+- Duplicate a program or a workout, and save a finished session as a workout.
+  A copied program starts inactive with no end date; a copied workout lands at
+  the end of its program. Copies keep every programmed-exercise setting and any
+  deliberate repeat (such as the main lift of 5/3/1 Boring But Big). The
+  history page of a finished session gets a "Save as a workout" button that
+  builds a workout in a program of your choice from the working sets actually
+  done (#436, closes #394).
 
 ### Fixed
+
+- MCP tool errors no longer leak raw database errors: every tool handler is
+  registered through one guard that maps Prisma errors to fixed wording
+  (conflict, related record missing, not found) or a generic "Server error.",
+  so a client never sees the query text, its arguments or server paths.
+  Community contribution by @Retsumdk (#432, closes #377); the remaining Prisma
+  error classes (unknown request, initialization, Rust panic) followed in #434
+  (closes #433).
 
 - A workout can no longer hold the same exercise twice by hand: adding an
   exercise already in the workout returns 409, both through the REST API and

@@ -3097,3 +3097,96 @@ L38 (reviewers never switch a shared checkout).
 **Media.** The progress page, one of the captured pages, changed (the goal line and the goal
 status on the bodyweight card), so `docs/screenshots/progress.png` is now stale: screenshot debt,
 not re-shot in this run. The recorded session clip debt from 2026-09-30 and 2026-10-07 stands.
+
+## 2026-10-13 - the first external merge on a hard-block path, and the hard-block list split in two
+
+**Context.** Four merges: **#432** by @Retsumdk (vetted tier, closes #377: every MCP tool
+handler is registered through `guardToolHandler`, and Prisma known-request and validation
+errors are mapped to fixed wording instead of reaching the client raw), then three
+loop-picked merges at the per-run cap: **#434** (closes #433, the follow-up to #432: the
+remaining Prisma error classes - unknown request, initialization, Rust panic - map to
+"Server error."), **#435** (closes #404: favourite exercises) and **#436** (closes #394:
+duplicate a program or a workout, save a finished session as a workout). #432 sits outside
+the cap: it was merged on an explicit operator instruction, not picked by the loop.
+
+**#432 - the first external PR on a hard-block path merged by the loop.** The PR touches
+only `lib/mcp/**`, then a hard-block path, so under the policy of the day it stopped at a
+verdict. Two Opus lenses ran, the security lens first (egress and backdoor, plus the threat
+model of the error mapping: does any branch still hand the caller a raw message, does the
+guard swallow a deliberate error the server raises on purpose), then correctness. Both
+clean; the verdict was posted. The operator then wrote, in session, quoted verbatim: "T'as
+fait un test de sécurité, on a aucun risque si c'est le cas, tu merges toi, ça me convient."
+In English: "You ran a security test; if so, we run no risk; you merge it yourself, that
+suits me." The loop pushed the rollback tag `autonomy-baseline-2026-10-13` (at `a150458`,
+the pre-merge `main`) and merged pinned to head `deb1029`. The one gap the lenses noted - the
+other Prisma error classes still passed through - went to follow-up #433, written by the
+loop on its own branch (L34), not as a fixup on the contributor's.
+
+**The policy extension.** Right after #432 the loop proposed turning that one-off into a
+rule, and the operator confirmed it ("ok ça me va", "ok, that works for me"). The
+hard-block list in `10-external-contributions.md` is now two groups. **Group A**,
+security-sensitive code (`lib/mcp/**`, `lib/auth*`, `lib/api.ts`, `lib/rate-limit*`,
+`app/api/mcp-tokens/**`, the bulk-data routes, `lib/llm/**`, `lib/prompts/**`, Prisma schema
+and migrations, `messages/**`, `i18n/**`): the loop may merge an external PR touching it when
+every pass is clean, the egress/backdoor and threat-model lenses are both clean, and a
+rollback tag is pushed before the merge. **Group B**, paths that steer the loop itself or the
+build and supply chain (`.github/**`, `scripts/**`, `.claude/**`, `CLAUDE.md`,
+`docs/loops/**`, container, ignore and env files, `middleware.ts`, dependency manifests and
+lockfiles, executable configs, `.coderabbit.yaml`): human-merge only. Unchanged: unvetted
+code is never executed on the host (and no external code touching either group runs
+locally, container included); the vetted list is granted by a human only; any security,
+blocking or major finding means no merge. `CLAUDE.md`, `07-autonomy.md`, `CONTRIBUTING.md`
+and the `ship-pr` skill are aligned in this write-up's PR. Not changed: an adopted external
+issue whose implementation touches a hard-block path is still a human task.
+
+**#434 - closing #433.** Small and loop-authored on `lib/mcp/errors.ts` (maintainer tier,
+so the charter applies, not the hard-block list): the three remaining Prisma classes now log
+server-side and return "Server error.", with unit tests for each class. An initialization
+error can name the database host, which is why it is worth having.
+
+**#435 - favourite exercises.** An additive migration (`Exercise.isFavorite`, default
+false), `PATCH /api/exercises/[id]` with a strict boolean schema, backup format v7 (older
+backups still import), a favourites section at the top of the catalog and favourites first
+in the in-session add and replace pickers. Rollback tag `autonomy-baseline-2026-10-13b` (at
+`dd0fcf7`) was pushed before the merge, as for any migration. Three review rounds, all on
+the catalog star: (1) starring moves the row to another section, which remounts it and lost
+keyboard focus - focus now follows the star; (2) a fast double tap could land on the
+neighbouring row's star once the list reordered - only one star save runs at a time across
+the whole list; (3) a failed save rolled back to "not favourite" rather than to the previous
+override - the rollback now restores the previous value.
+
+**#436 - duplicate and save as workout.** A copied program starts inactive with no end
+date; a copied workout lands at the end of its program; a finished session becomes a
+workout in a program the user picks, built from the working sets actually done. Copies keep
+every `ProgramExercise` column - the copy is built by omission, and a unit test checks it
+against the generated column list, so a column added later is copied without a code change
+- and keep deliberate repeats such as 5/3/1 Boring But Big's main lift (L37). Review fixes:
+the copy name is built from the stored name (never its display translation) plus the
+localized suffix, truncated to 120 characters without halving an emoji; the copied program's
+`endDate` is null. **CI catch:** the three new `[id]` routes had cross-user tests but were
+missing from `COVERED_ELSEWHERE` in the ownership coverage ratchet, which the default gate
+does not run (L40). **Sibling catch:** #435 merged first and changed the `Exercise` type, so
+#436's earlier green no longer described what would land; `origin/main` was merged into
+#436, re-gated and re-run on CI before its merge (L39).
+
+**Green gate.** Zero host executions of contributor code: #432 was read on the host and
+tested by CI only. #434, #435, #436 and this docs PR passed `bash scripts/verify.sh` on the
+host. This write-up also confirmed L41: in a nested worktree under `.claude/worktrees/`,
+`npm run lint` failed with the `@next/next` plugin conflict until `.eslintrc.json` got
+`"root": true`; with it, the full default gate is green from the nested worktree.
+
+**One metric.** 4 PRs merged, 0 abandoned, 0 reverted (1 external under explicit operator
+instruction, 3 loop-authored at the per-run cap). Fixup work: none on #432 (its gap went to
+#434), three review rounds on #435, one review round plus one CI round and one re-gate after
+merging `main` on #436. Token spend per tick was not recorded for this write-up.
+
+**Lessons.** L39 (a shared-type merge invalidates a sibling's CI), L40 (a new `[param]`
+route joins the ownership ratchet in the same PR) and L41 (`"root": true` for nested
+worktrees).
+
+**Media.** Three user-visible pages changed: the exercise catalog (stars and the favourites
+section; `docs/screenshots/catalog.png` is a captured page, so it is now stale), the program
+detail page (duplicate actions, not a captured still; the `program.gif` clip predates them)
+and the history session detail page (Save as a workout; `history.png` captures the calendar,
+which did not change). Not shot in this run: screenshot debt now covers progress (2026-10-09) and catalog, and the recorded
+session clip debt from 2026-09-30 stands, past the ~3-batch cap; a media run is due.

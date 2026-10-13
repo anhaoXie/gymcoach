@@ -215,7 +215,11 @@ on your own key - all self-hosted.
   Strength, StrongLifts 5x5, Madcow, PHUL, PHAT, Full Body - runnable as written
   and editable like any program.
 - **Exercise catalog** - searchable by name, on top of your custom exercises and
-  muscle-group grouping.
+  muscle-group grouping. Star your favourites: they get their own section at
+  the top of the catalog and come first in the in-session pickers.
+- **Duplicate and reuse** - copy a whole program or a single workout as a
+  starting point, or save a finished session from the history as a workout
+  in one of your programs.
 - **Printable workout sheet** - print (or save as PDF) a clean A4 sheet per
   workout with empty weight / reps / RIR cells for every planned set, fill it in
   by hand at the gym, and re-enter it later
@@ -483,6 +487,8 @@ than CI reaching in to a small VPS.
 - [x] Gym-aware weight picker and in-session exercise actions (replace, add,
       remove)
 - [x] MCP gym inventory, equipment backfill and capability index tools
+- [x] Favourite exercises, duplicate a program or workout, and save a finished
+      session as a workout
 
 ## Contributing
 
@@ -520,7 +526,9 @@ Notable changes are tracked in the [CHANGELOG](CHANGELOG.md).
   (#385), a clean first contribution with a precise write-up of what it does
   not touch, then fixed its follow-up (#420) and made the API refuse an
   exercise already in a workout (#425), the first PR merged under the vetted
-  tier.
+  tier. Then routed every MCP tool handler through one guard that maps
+  database errors to fixed wording, so a client never sees a raw query error
+  (#432).
 - [@shaurya703](https://github.com/shaurya703) - picked up three of the loop's
   own follow-up issues within hours of their filing and turned each into a
   clean PR, including the persisted dropped-equipment notice (#342).

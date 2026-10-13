@@ -630,3 +630,42 @@ Format per entry: trigger/evidence, the lesson (actionable), and **Status** = `g
   in every review prompt.
 - **Status:** graduated -> step 4 of the `ship-pr` skill and "Concurrent ticks" in
   `06-orchestration.md`.
+
+### L39 - A merge that changes a shared type or schema invalidates a sibling PR's green CI
+- **Trigger:** 2026-10-13, #435 -> #436. Both PRs were open at once. #435 (favourite
+  exercises) added `Exercise.isFavorite` to the Prisma schema, which changes the generated
+  `Exercise` type; #436 (duplicate programs, save a session as a workout) had been tested
+  against the `main` before it. Its CI said nothing about the tree that would exist after
+  the merge.
+- **Lesson:** after merging a PR that touches the Prisma schema, a migration, or a type or
+  Zod schema another open PR imports, treat the sibling's green CI as stale: merge
+  `origin/main` into the sibling, re-run `verify.sh`, push, and merge only on a fresh green
+  CI for the new head. #436 was merged that way. Same family as L31/L32 (stacked fork PRs),
+  but for independent loop branches that share a type.
+- **Status:** graduated -> "Guardrails" of the `ship-pr` skill.
+
+### L40 - A new `[param]` API route must join the ownership coverage ratchet in the same PR
+- **Trigger:** 2026-10-13, #436. Its three new routes (`programs/[id]/duplicate`,
+  `workouts/[id]/duplicate`, `sessions/[id]/save-as-workout`) had cross-user integration
+  tests in `tests/integration/program-copy.test.ts`, but were not listed in
+  `COVERED_ELSEWHERE` of `tests/integration/route-ownership-coverage.test.ts`. The ratchet
+  is in the integration tier, which the default `verify.sh` skips, so the gap passed the
+  local gate and CI caught it a cycle later.
+- **Lesson:** when a PR adds an API route with a `[param]` segment, or one that takes
+  another resource's id in its body, register it in the ratchet in the same PR (a case in
+  `route-ownership.test.ts`, or a `COVERED_ELSEWHERE` entry pointing at the suite that holds
+  its cross-user test). The ratchet worked as designed; the cost was one CI round trip.
+- **Status:** graduated -> step 4 ("Test") of the `implement-issue` skill.
+
+### L41 - A nested worktree failed `next lint` because ESLint also loaded the parent checkout's config
+- **Trigger:** 2026-10-13. Worktrees live under `.claude/worktrees/<name>`, inside the main
+  checkout. Without `"root": true`, ESLint 8 walks up the directories and merges every
+  `.eslintrc.json` it finds, so a nested worktree loaded its own config and the main
+  checkout's, both extending `next/core-web-vitals`, and `npm run lint` died with
+  `Plugin "@next/next" was conflicted between ".eslintrc.json ..." and "../../../.eslintrc.json ..."`.
+  Reproduced in this run's worktree before the fix.
+- **Lesson:** a repo config that is meant to be the whole config says so. `.eslintrc.json`
+  now has `"root": true`, and `bash scripts/verify.sh` passes from a nested worktree. Fixed
+  at the root rather than by moving worktrees out of the checkout or skipping lint there.
+- **Status:** graduated -> `"root": true` in `.eslintrc.json` (this write-up's PR; a
+  maintainer-tier change to a group B path, which the loop may make for its own work).
