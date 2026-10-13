@@ -377,4 +377,37 @@ describe('SessionExerciseMenu', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Incline Press' }));
     await waitFor(() => expect(toast.error).toHaveBeenCalledWith('Could not add the exercise.'));
   });
+
+  it('lists favourite exercises first in the add and replace pickers (#404)', () => {
+    const favoriteDecline = { ...decline, isFavorite: true } as Exercise;
+    render(
+      <SessionExerciseMenu
+        open
+        onOpenChange={vi.fn()}
+        programExercise={programExercise}
+        programExercises={[programExercise, nextProgramExercise]}
+        catalog={[bench, incline, favoriteDecline, row]}
+        loggedSetCount={0}
+        onChanged={vi.fn()}
+      />,
+    );
+    const pressChoices = () =>
+      screen
+        .getAllByRole('button')
+        .map((button) => button.getAttribute('aria-label') ?? button.textContent ?? '')
+        .filter((name) => name.includes('Press'));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Replace exercise' }));
+    expect(pressChoices()).toEqual(['favourite: Decline Press', 'Incline Press']);
+    // The star is announced, not only drawn.
+    expect(screen.getByRole('button', { name: 'favourite: Decline Press' })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Back' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Add exercise' }));
+    expect(pressChoices()).toEqual(['favourite: Decline Press', 'Incline Press']);
+
+    // Favourites stay first among search results too.
+    fireEvent.change(screen.getByLabelText('Search exercises'), { target: { value: 'line' } });
+    expect(pressChoices()).toEqual(['favourite: Decline Press', 'Incline Press']);
+  });
 });

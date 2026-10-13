@@ -28,6 +28,10 @@ export const exercises = {
   deleted: 'Exercice supprimé.',
   saveError: 'Impossible d’enregistrer l’exercice.',
   deleteError: 'Impossible de supprimer l’exercice.',
+  favorites: 'Favoris',
+  favorite: 'Ajouter {name} aux favoris',
+  unfavorite: 'Retirer {name} des favoris',
+  favoriteError: 'Impossible de mettre à jour vos favoris.',
   deleteTitle: 'Supprimer cet exercice ?',
   deleteDescription:
     '{name} sera retiré du catalogue. Il ne peut pas être supprimé tant qu’il est utilisé dans un programme ou dans l’historique.',

@@ -13,15 +13,21 @@ import { Prisma } from '@/prisma/generated/client';
 const RAW_PRISMA_TEXT =
   'Invalid `prisma.gym.findMany()` invocation in /app/lib/gym-equipment.ts:68 secretArg=42';
 
+// The error the mocked helper throws next; each test picks its Prisma class.
+const thrown = vi.hoisted(() => ({ next: null as Error | null }));
+
 vi.mock('@/lib/gym-equipment', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/gym-equipment')>();
   return {
     ...actual,
     listOwnedGyms: vi.fn(async () => {
-      throw new Prisma.PrismaClientKnownRequestError(RAW_PRISMA_TEXT, {
-        code: 'P2003',
-        clientVersion: 'test',
-      });
+      throw (
+        thrown.next ??
+        new Prisma.PrismaClientKnownRequestError(RAW_PRISMA_TEXT, {
+          code: 'P2003',
+          clientVersion: 'test',
+        })
+      );
     }),
   };
 });
@@ -46,6 +52,8 @@ async function connect(canWrite: boolean) {
 }
 
 afterEach(async () => {
+  thrown.next = null;
+  vi.restoreAllMocks();
   await Promise.allSettled(openClients.splice(0).map((client) => client.close()));
   await Promise.allSettled(openServers.splice(0).map((server) => server.close()));
 });
@@ -62,6 +70,22 @@ describe('MCP tool error mapping', () => {
     expect(seen).not.toContain('invocation');
     expect(seen).not.toContain('secretArg');
     expect(seen).not.toContain('/app/');
+  });
+
+  it('never hands a database connection error to the client (#433)', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    thrown.next = new Prisma.PrismaClientInitializationError(
+      `Can't reach database server at db.internal:5432 ${RAW_PRISMA_TEXT}`,
+      'test',
+    );
+    const client = await connect(true);
+    const res = await client.callTool({ name: 'list_gyms', arguments: {} });
+
+    expect(res.isError).toBe(true);
+    const seen = JSON.stringify(res.content);
+    expect(seen).toContain('Server error.');
+    expect(seen).not.toContain('db.internal');
+    expect(seen).not.toContain('invocation');
   });
 
   it('lets a deliberate error keep its own message', async () => {

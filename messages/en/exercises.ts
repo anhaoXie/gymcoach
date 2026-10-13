@@ -24,6 +24,10 @@ export const exercises = {
   deleted: 'Exercise deleted.',
   saveError: 'Could not save the exercise.',
   deleteError: 'Could not delete the exercise.',
+  favorites: 'Favourites',
+  favorite: 'Add {name} to favourites',
+  unfavorite: 'Remove {name} from favourites',
+  favoriteError: 'Could not update your favourites.',
   deleteTitle: 'Delete this exercise?',
   deleteDescription:
     '{name} will be removed from the catalog. It cannot be deleted while used in a program or training history.',

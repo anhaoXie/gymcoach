@@ -47,7 +47,7 @@ import {
 //   heightCm, goal, weeklyFrequency, unit, deloadUntil). email/createdAt ride along for
 //   reference but are NEVER imported (they identify the importing account).
 // - Exercise: name, muscleGroup, category, defaultRestSec, notes,
-//   usesBodyweight.
+//   usesBodyweight, equipmentType, isFavorite.
 // - Program / Workout / ProgramExercise: all user content incl supersetGroup.
 // - Session / Set: all user content incl durationSec, distanceM, avgHr.
 // - Saved Gym profiles plus physical GymEquipment, equipment-to-exercise links,
@@ -62,7 +62,7 @@ import {
 // - Program.createdAt / Program.updatedAt and Exercise.createdAt (server-side
 //   bookkeeping with no user-facing meaning; reset to the import time).
 
-const VERSION = 6;
+const VERSION = 7;
 
 // Hard cap on the import body size, enforced while reading the stream (the
 // Content-Length header is attacker-controlled). Generous: a decade of daily
@@ -201,6 +201,8 @@ export async function GET() {
         notes: e.notes,
         usesBodyweight: e.usesBodyweight,
         equipmentType: e.equipmentType,
+        // New in v7 (issue #404); absent from older backups.
+        isFavorite: e.isFavorite,
       })),
       gyms: gyms.map((gym) => ({
         name: gym.name,
@@ -381,6 +383,8 @@ const importSchema = z.object({
         usesBodyweight: z.boolean().optional(),
         // v3; absent in older backups.
         equipmentType: z.nativeEnum(EquipmentType).optional(),
+        // v7; absent in older backups.
+        isFavorite: z.boolean().optional(),
       }),
     )
     .max(2000),
@@ -700,6 +704,7 @@ export async function POST(req: Request) {
               notes: e.notes ?? null,
               usesBodyweight: e.usesBodyweight ?? false,
               equipmentType: e.equipmentType ?? 'OTHER',
+              isFavorite: e.isFavorite ?? false,
             },
           });
           exerciseIdByName.set(e.name, created.id);

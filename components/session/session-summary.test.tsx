@@ -14,6 +14,7 @@ const exo: Exercise = {
   notes: null,
   usesBodyweight: false,
   equipmentType: 'BARBELL',
+  isFavorite: false,
   createdAt: new Date(),
 };
 

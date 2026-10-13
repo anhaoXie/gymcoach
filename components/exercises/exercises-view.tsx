@@ -1,8 +1,10 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { useTranslations } from 'next-intl';
-import { Plus, Pencil, Search } from 'lucide-react';
+import { Plus, Pencil, Search, Star } from 'lucide-react';
+import { toast } from 'sonner';
 import type { Exercise, MuscleGroup } from '@/lib/prisma-client';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -12,6 +14,7 @@ import { ExerciseFormDialog } from '@/components/exercises/exercise-form-dialog'
 import { ExerciseMediaDialog } from '@/components/exercises/exercise-media-dialog';
 import { DeleteExerciseButton } from '@/components/exercises/delete-exercise-button';
 import { useExerciseName } from '@/components/shared/use-exercise-name';
+import { cn } from '@/lib/utils';
 import {
   equipmentTypeMessageKeys,
   exerciseCategoryMessageKeys,
@@ -29,19 +32,118 @@ export function ExercisesView({ exercises }: ExercisesViewProps) {
   const [createOpen, setCreateOpen] = useState(false);
   const [editing, setEditing] = useState<Exercise | null>(null);
   const [query, setQuery] = useState('');
+  // Stars toggled on this page before the refreshed list arrives (issue #404),
+  // so a starred row moves to the favourites section at once.
+  const [favoriteOverrides, setFavoriteOverrides] = useState<Record<string, boolean>>({});
+  // One star request at a time across the whole list: the reorder slides
+  // another row's star under the finger, so a double tap must be ignored on
+  // every star, not only the one being saved, and two PATCHes never race.
+  const [pendingFavorites, setPendingFavorites] = useState<ReadonlySet<string>>(new Set());
+  const pendingRef = useRef(new Set<string>());
+  // Starring moves the row to another section, which remounts it; focus
+  // follows the exercise's star to its new place.
+  const starRefs = useRef(new Map<string, HTMLButtonElement>());
+  const [focusStarId, setFocusStarId] = useState<string | null>(null);
+  const router = useRouter();
+
+  useEffect(() => {
+    if (!focusStarId) return;
+    starRefs.current.get(focusStarId)?.focus();
+    setFocusStarId(null);
+  }, [focusStarId, favoriteOverrides]);
+
+  // Drop an override once the refreshed list agrees with it, so a later server
+  // value (another tab, a backup import) is not masked for the page's life.
+  useEffect(() => {
+    setFavoriteOverrides((current) => {
+      const stale = exercises.filter(
+        (ex) =>
+          ex.id in current && current[ex.id] === ex.isFavorite && !pendingRef.current.has(ex.id),
+      );
+      if (stale.length === 0) return current;
+      const rest = { ...current };
+      for (const ex of stale) delete rest[ex.id];
+      return rest;
+    });
+  }, [exercises]);
+
+  function setPending(id: string, pending: boolean) {
+    if (pending) pendingRef.current.add(id);
+    else pendingRef.current.delete(id);
+    setPendingFavorites(new Set(pendingRef.current));
+  }
+
+  const withFavorites = useMemo(
+    () =>
+      exercises.map((ex) =>
+        ex.id in favoriteOverrides ? { ...ex, isFavorite: favoriteOverrides[ex.id]! } : ex,
+      ),
+    [exercises, favoriteOverrides],
+  );
+
+  async function toggleFavorite(exercise: Exercise) {
+    if (pendingRef.current.size > 0) return;
+    const next = !exercise.isFavorite;
+    const hadOverride = exercise.id in favoriteOverrides;
+    const previous = favoriteOverrides[exercise.id];
+    setPending(exercise.id, true);
+    setFavoriteOverrides((current) => ({ ...current, [exercise.id]: next }));
+    setFocusStarId(exercise.id);
+    const res = await fetch(`/api/exercises/${exercise.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ isFavorite: next }),
+    }).catch(() => null);
+    setPending(exercise.id, false);
+    if (!res?.ok) {
+      // Put back exactly what was shown before this tap, not the server prop,
+      // which may still predate an earlier successful toggle.
+      setFavoriteOverrides((current) => {
+        const rest = { ...current };
+        if (hadOverride) rest[exercise.id] = previous!;
+        else delete rest[exercise.id];
+        return rest;
+      });
+      // Bring focus back to the star only if the user has not moved on.
+      const active = document.activeElement;
+      if (!active || active === document.body || active === starRefs.current.get(exercise.id)) {
+        setFocusStarId(exercise.id);
+      }
+      toast.error(t('favoriteError'));
+      return;
+    }
+    router.refresh();
+  }
+
+  function rowProps(ex: Exercise) {
+    return {
+      exercise: ex,
+      onEdit: () => setEditing(ex),
+      onToggleFavorite: () => void toggleFavorite(ex),
+      favoritePending: pendingFavorites.size > 0,
+      starRef: (node: HTMLButtonElement | null) => {
+        // React detaches the old node before attaching the moved one.
+        if (node) starRefs.current.set(ex.id, node);
+        else starRefs.current.delete(ex.id);
+      },
+    };
+  }
 
   // Case-insensitive substring match on the exercise name. The query only
   // narrows the already-loaded list (no API call); an empty query shows
   // everything, preserving the original behaviour.
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (!q) return exercises;
-    return exercises.filter(
+    if (!q) return withFavorites;
+    return withFavorites.filter(
       (ex) => ex.name.toLowerCase().includes(q) || exerciseName(ex.name).toLowerCase().includes(q),
     );
-  }, [exerciseName, exercises, query]);
+  }, [exerciseName, withFavorites, query]);
 
-  const grouped = useMemo(() => groupByMuscle(filtered), [filtered]);
+  // Favourites are pinned in their own section at the top and not repeated in
+  // their muscle group below.
+  const favorites = useMemo(() => filtered.filter((ex) => ex.isFavorite), [filtered]);
+  const grouped = useMemo(() => groupByMuscle(filtered.filter((ex) => !ex.isFavorite)), [filtered]);
 
   return (
     <div className="mx-auto flex max-w-3xl flex-col gap-6">
@@ -88,6 +190,21 @@ export function ExercisesView({ exercises }: ExercisesViewProps) {
         </Card>
       ) : (
         <div className="flex flex-col gap-6">
+          {favorites.length > 0 && (
+            <section className="flex flex-col gap-2" aria-labelledby="exercise-favorites-heading">
+              <h2
+                id="exercise-favorites-heading"
+                className="text-sm font-semibold uppercase tracking-wide text-muted-foreground"
+              >
+                {t('favorites')}
+              </h2>
+              <div className="flex flex-col gap-2">
+                {favorites.map((ex) => (
+                  <ExerciseRow key={ex.id} {...rowProps(ex)} />
+                ))}
+              </div>
+            </section>
+          )}
           {Object.entries(grouped).map(([group, list]) => (
             <section key={group} className="flex flex-col gap-2">
               <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
@@ -95,7 +212,7 @@ export function ExercisesView({ exercises }: ExercisesViewProps) {
               </h2>
               <div className="flex flex-col gap-2">
                 {list.map((ex) => (
-                  <ExerciseRow key={ex.id} exercise={ex} onEdit={() => setEditing(ex)} />
+                  <ExerciseRow key={ex.id} {...rowProps(ex)} />
                 ))}
               </div>
             </section>
@@ -116,7 +233,19 @@ export function ExercisesView({ exercises }: ExercisesViewProps) {
   );
 }
 
-function ExerciseRow({ exercise, onEdit }: { exercise: Exercise; onEdit: () => void }) {
+function ExerciseRow({
+  exercise,
+  onEdit,
+  onToggleFavorite,
+  favoritePending,
+  starRef,
+}: {
+  exercise: Exercise;
+  onEdit: () => void;
+  onToggleFavorite: () => void;
+  favoritePending: boolean;
+  starRef: (node: HTMLButtonElement | null) => void;
+}) {
   const t = useTranslations('exercises');
   const exerciseName = useExerciseName();
   const displayName = exerciseName(exercise.name);
@@ -156,6 +285,23 @@ function ExerciseRow({ exercise, onEdit }: { exercise: Exercise; onEdit: () => v
           )}
         </div>
         <div className="-mb-2 -mr-2 -mt-4 flex w-full shrink-0 items-center justify-end sm:-mt-2 sm:w-auto">
+          <Button
+            variant="ghost"
+            size="icon"
+            ref={starRef}
+            onClick={onToggleFavorite}
+            // aria-disabled rather than disabled, so the star keeps focus while
+            // its save is in flight; the handler ignores the tap meanwhile.
+            aria-disabled={favoritePending || undefined}
+            aria-pressed={exercise.isFavorite}
+            aria-label={t(exercise.isFavorite ? 'unfavorite' : 'favorite', { name: displayName })}
+            className="min-h-tap min-w-tap aria-disabled:opacity-50"
+          >
+            <Star
+              className={cn('size-4', exercise.isFavorite && 'fill-current text-amber-500')}
+              aria-hidden
+            />
+          </Button>
           <Button
             variant="ghost"
             size="icon"

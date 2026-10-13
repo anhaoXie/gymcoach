@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { Prisma } from '@/prisma/generated/client';
 import { guardToolHandler, mapToolError } from './errors';
 
@@ -13,6 +13,12 @@ function knownError(code: string, message: string) {
 // caller's own arguments and the server source paths.
 const RAW_PRISMA_TEXT =
   'Invalid `prisma.set.create()` invocation in /app/lib/gym-equipment.ts:412 secretArg=42';
+
+afterEach(() => {
+  // Restored here rather than after the assertions, so a failing assertion
+  // cannot leave console.error silenced for the next test.
+  vi.restoreAllMocks();
+});
 
 describe('mapToolError', () => {
   it('maps a unique-constraint violation to the REST conflict wording', () => {
@@ -46,7 +52,6 @@ describe('mapToolError', () => {
     expect(mapped.message).toBe('Server error.');
     expect(mapped.message).not.toContain('invocation');
     expect(spy).toHaveBeenCalled();
-    spy.mockRestore();
   });
 
   it('maps a Prisma validation error to a generic message and logs it server-side', () => {
@@ -59,7 +64,28 @@ describe('mapToolError', () => {
     expect(mapped.message).toBe('Server error.');
     expect(mapped.message).not.toContain('invocation');
     expect(spy).toHaveBeenCalled();
-    spy.mockRestore();
+  });
+
+  it.each([
+    [
+      'an unknown request error',
+      new Prisma.PrismaClientUnknownRequestError(RAW_PRISMA_TEXT, { clientVersion: 'test' }),
+    ],
+    [
+      'an initialization error',
+      new Prisma.PrismaClientInitializationError(
+        `Can't reach database server at db.internal:5432 ${RAW_PRISMA_TEXT}`,
+        'test',
+      ),
+    ],
+    ['a Rust panic', new Prisma.PrismaClientRustPanicError(RAW_PRISMA_TEXT, 'test')],
+  ])('maps %s to a generic message and logs it server-side', (_label, err) => {
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const mapped = mapToolError(err);
+    expect(mapped.message).toBe('Server error.');
+    expect(mapped.message).not.toContain('invocation');
+    expect(mapped.message).not.toContain('db.internal');
+    expect(spy).toHaveBeenCalled();
   });
 
   it('passes a deliberate error through unchanged', () => {

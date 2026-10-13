@@ -77,6 +77,7 @@ export default async function SessionRunPage(props: Props) {
         category: true,
         usesBodyweight: true,
         defaultRestSec: true,
+        isFavorite: true,
       },
     }),
   ]);

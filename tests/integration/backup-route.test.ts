@@ -75,6 +75,7 @@ async function seedFullUser(email: string) {
       muscleGroup: 'CHEST',
       category: 'COMPOUND',
       equipmentType: 'BARBELL',
+      isFavorite: true,
     },
   });
   const pullup = await db.exercise.create({
@@ -304,7 +305,7 @@ beforeEach(() => {
 });
 
 describe('GET /api/backup - export completeness (issue #168)', () => {
-  it('exports version 6 with the bodyweight goal and all earlier backup fields', async () => {
+  it('exports version 7 with exercise favourites and all earlier backup fields', async () => {
     const user = await seedFullUser('a@test.dev');
     actAs(user.id);
 
@@ -312,7 +313,7 @@ describe('GET /api/backup - export completeness (issue #168)', () => {
     expect(res.status).toBe(200);
     const dump = await res.json();
 
-    expect(dump.version).toBe(6);
+    expect(dump.version).toBe(7);
     expect(dump.profile).toMatchObject({
       displayName: 'Julien',
       bodyweight: 82.5,
@@ -329,6 +330,11 @@ describe('GET /api/backup - export completeness (issue #168)', () => {
     const pullup = dump.exercises.find((e: { name: string }) => e.name === 'Pull-up');
     expect(pullup.usesBodyweight).toBe(true);
     expect(pullup.equipmentType).toBe('BODYWEIGHT');
+    // v7 (issue #404): the favourite flag rides along.
+    expect(pullup.isFavorite).toBe(false);
+    expect(dump.exercises.find((e: { name: string }) => e.name === 'Bench Press').isFavorite).toBe(
+      true,
+    );
     expect(dump.gyms).toEqual([
       {
         name: 'Basement',
@@ -478,6 +484,10 @@ describe('POST /api/backup - restore round trip (issue #168)', () => {
     });
     expect(goalB?.exercise.userId).toBe(userB.id);
     expect(goalB?.exercise.name).toBe('Bench Press');
+    // The favourite flag was restored (v7, issue #404).
+    expect(goalB?.exercise.isFavorite).toBe(true);
+    const pullupB = await db.exercise.findFirst({ where: { userId: userB.id, name: 'Pull-up' } });
+    expect(pullupB?.isFavorite).toBe(false);
 
     // The profile (including deload state) was restored onto user B.
     const profileB = await db.user.findUnique({ where: { id: userB.id } });
@@ -581,6 +591,8 @@ describe('POST /api/backup - restore round trip (issue #168)', () => {
     // v2 fields default to their pre-#168 values.
     const squat = await db.exercise.findFirst({ where: { userId: user.id } });
     expect(squat?.usesBodyweight).toBe(false);
+    // v7 field: an older backup imports with no favourites.
+    expect(squat?.isFavorite).toBe(false);
     const pe = await db.programExercise.findFirst({
       where: { workout: { program: { userId: user.id } } },
     });
