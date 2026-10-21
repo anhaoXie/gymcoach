@@ -68,7 +68,6 @@ With certificates from Certbot in the usual Let's Encrypt paths:
 ```nginx
 server {
     listen 443 ssl;
-    http2 on;
     server_name gym.example.com;
 
     ssl_certificate     /etc/letsencrypt/live/gym.example.com/fullchain.pem;
@@ -208,11 +207,11 @@ Keep `.env` out of shared archives: it contains the database password and the
 JWT secret. Restoring the database without the matching `POSTGRES_PASSWORD`
 leaves the app unable to connect.
 
-The in-app **Settings -> Backup** export is a different thing: a JSON file of
-one account's data (exercises, programs, sessions, measurements and so on),
-importable by the same account from **Settings -> Import**. It is useful for
-moving one user's history or for keeping a copy you can read, but it is not a
-disaster-recovery backup of the instance.
+The in-app export is a different thing: **Settings -> Data -> Export all my
+data (JSON)** writes one account's data (exercises, programs, sessions,
+measurements and so on) to a file, and **Import a backup** in the same section
+loads it back. It is useful for moving one user's history or for keeping a copy
+you can read, but it is not a disaster-recovery backup of the instance.
 
 ### Restore onto the same host
 

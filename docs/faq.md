@@ -65,9 +65,16 @@ docker compose exec db psql -U gymcoach -d gymcoach -c \
   "UPDATE \"User\" SET \"passwordHash\" = (SELECT \"passwordHash\" FROM \"User\" WHERE email = 'temp@example.com') WHERE email = 'you@example.com';"
 ```
 
-Delete the temporary user afterwards with `DELETE FROM "User" WHERE email =
-'temp@example.com';` (their sessions, programs and photos go with it). If you
-have a database backup, restoring it is the alternative.
+The temporary account can stay; it is only an extra login on the instance.
+Deleting it takes one more step, because the signup seeds an exercise catalog
+for it and a few tables reference the user without a cascade:
+
+```bash
+docker compose exec db psql -U gymcoach -d gymcoach -c \
+  "DELETE FROM \"Exercise\" WHERE \"userId\" = (SELECT id FROM \"User\" WHERE email = 'temp@example.com'); DELETE FROM \"User\" WHERE email = 'temp@example.com';"
+```
+
+If you have a database backup, restoring it is the alternative.
 
 ## Data
 
@@ -86,15 +93,16 @@ has copy-paste commands. Keep `.env` separate from archives you share.
 
 ### Is there a way to export just my account?
 
-Yes. **Settings -> Backup** downloads a JSON file with that account's data, and
-**Settings -> Import** loads it back. It is useful for keeping a readable copy
+Yes. **Settings -> Data -> Export all my data (JSON)** downloads a JSON file
+with that account's data, and **Import a backup** loads it back. It is useful for keeping a readable copy
 or moving one account's history; it is not a replacement for the volume backup.
 
 ### Can I import from another app?
 
-The import screen accepts Hevy and Strong exports, GymCoach JSON backups, and
-cardio files (FIT, GPX, TCX) in the cardio section. See the import screen for
-the exact file expected by each source.
+The **Import training history** section of Settings accepts Hevy and Strong
+exports, and cardio files (FIT, GPX, TCX) in the cardio part. Full GymCoach JSON
+backups go through **Settings -> Data -> Import a backup**. Each screen previews
+the file before anything is written.
 
 ### I restored the database but my progress photos are gone. Why?
 
