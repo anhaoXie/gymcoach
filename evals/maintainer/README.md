@@ -29,16 +29,17 @@ npx tsx evals/maintainer/run.ts --task <id> \
 [`runner.ts`](runner.ts). The container and network containment it was waiting
 for (issue #453) is in place and proven below. Grading validity is not: the
 harness canary is a tripwire that catches the known in-process cheats, not a
-guarantee, and concrete bypasses are known (issue #468, "Residual risks"
-below; part (b), the lexical `test-globals` rule, is now screened by a
-syntax-tree check with the residual limits listed there, and part (a) is still
-open). **`PAID_AGENT_ENABLED` must stay `false` until #468 is closed or the
-operator explicitly accepts those risks.** Even then, a paid run's result is
+guarantee. The two bypasses of issue #468 are closed (part (b): the
+`test-globals` rule is a syntax-tree screen; part (a): the canary records every
+standard built-in and checks from inside the hidden tests, replayed live by
+[`canary-live.test.ts`](canary-live.test.ts)), but it keeps the residual risks
+listed under "Residual risks" below. **`PAID_AGENT_ENABLED` stays `false` until
+the operator explicitly accepts those risks.** Even then, a paid run's result is
 audited by a diff review of the agent's patch before it is counted: grading
 alone cannot prove the absence of grader tampering. A paid run needs all of:
 
 1. `PAID_AGENT_ENABLED` set to `true` by the operator in a reviewed PR, after
-   #468 is closed or its risks are accepted,
+   accepting the canary's residual risks (#468),
 2. `--budget-usd N` (the CLI's own spending cap for the run),
 3. `EVAL_BUDGET_APPROVED=1` in the environment, set by the operator,
 4. `--i-accept-credential-risk`, acknowledging the residual risk described
@@ -335,8 +336,8 @@ generate` runs in a container with no network.
    files that the screen cannot see (`expect.extend` on the vitest global from
    `messages/en`, which the base `vitest.setup.ts` imports; `Object.is`
    replaced through an alias). **The known cheats of that in-process class are
-   caught, not prevented, by the harness canary** (step 5), which has known
-   gaps of its own (issue #468).
+   caught, not prevented, by the harness canary** (step 5), which has
+   residual risks of its own (issue #468).
 
 4. **Grading template.** A fresh copy of the untouched snapshot onto which only
    the agent's allowlisted regular files are written (or deleted). Writes never
@@ -455,66 +456,92 @@ it. The file allowlist keeps it from changing configs, setups or tooling; it
 cannot keep it from changing the test framework in memory. Every vitest run of
 the grader (hidden and preserved, unit and integration) carries a **canary**
 (`canaryFiles` in [`runner.ts`](runner.ts)). It is a **tripwire**: it catches
-the cheats found in review rounds 4 and 5 of #455 and raises the cost of a new
-one, but it is not a guarantee: the round-6 review found two bypasses it does
-not catch (below and in issue #468):
+the cheats found in review rounds 4 and 5 of #455 and the two bypasses of
+issue #468, and raises the cost of a new one, but it is not a guarantee (its
+residual risks are below):
 
 - **Grader-owned files.** Per eval run, seven files with unpredictable names
-  (`x<random>.*`) are written into every grading tree like the hidden tests:
-  hash-checked before each run, never agent-writable, never in the agent's
-  workspace. Vitest is called with a grader-owned config built from the base
-  one: the canary's first setup file is **prepended** to the base setup files,
-  its second setup file appended, and the canary test added to the file list.
+  (`x<random>.*`) are written into every grading tree like the hidden tests,
+  plus a copy of the canary test in every directory that holds a hidden test
+  (`lib/x<random>.test.ts`, `canaryTestPaths`): hash-checked before each run,
+  never agent-writable, never in the agent's workspace. Vitest is called with a
+  grader-owned config built from the base one: the canary's first setup file is
+  **prepended** to the base setup files, its second setup file appended, and
+  the canary tests added to the file list.
 - **An identity record taken before any application code.** The first setup
   file runs before the base setup, so before any application module is
   imported. (For the unit tier it first applies the base setup's own jest-dom
-  extension, so those matchers are part of the record; the base setup's later
-  import of it is a cached module and adds nothing.) It records the function
-  property descriptors (value, getter, setter) of exactly these targets (the
-  `TARGETS` list in [`runner.ts`](runner.ts)):
-  - every own property of chai's `Assertion.prototype`, of chai's `assert`, of
-    `expect` (its statics), of the matcher registry's `matchers` and of its
-    `customEqualityTesters`;
-  - `chai.Assertion`, `chai.assert`, `chai.expect`, `chai.use`, `chai.util`,
-    `chai.config` (the references, not the contents of `chai.util`);
-  - `vi.fn`, `vi.spyOn`, `vi.mock`, `vi.isMockFunction`;
-  - on `globalThis`: the matcher registry symbol, `expect`, `vi`, `vitest`,
-    `assert`, `chai`, `beforeEach`, `afterEach`, `beforeAll`, `afterAll`, `it`,
-    `test`, `describe`;
-  - `Object.is`, `keys`, `entries`, `values`, `getOwnPropertyNames`,
-    `getOwnPropertyDescriptor`, `getPrototypeOf`, `defineProperty`, `assign`,
-    `freeze`; `Reflect.ownKeys`, `getOwnPropertyDescriptor`, `apply`, `get`,
-    `has`; `Array.isArray`, `Array.from`; `Array.prototype.includes`,
-    `indexOf`, `some`, `every`, `map`, `filter`, `find`, `join`, `sort`,
-    `length`; `String.raw`; `String.prototype.includes`, `indexOf`,
-    `startsWith`, `endsWith`, `match`, `toString`, `trim`, `valueOf`;
-    `RegExp.prototype.test`, `exec`; `JSON.stringify`, `parse`;
-    `Function.prototype.toString`, `call`, `apply`, `bind`; `Symbol.for`;
-    `Number.isNaN`, `isFinite`; `Math.abs`, `max`, `min`.
-
-  Nothing else is recorded: other standard built-ins and their members (for
-  example `Object.hasOwn`, `Object.getOwnPropertySymbols`, the
-  `Object.prototype` methods, `Error.stackTraceLimit`), timers, `Date`, and
-  the other members of `vi` are outside the record. The comparison uses
-  helpers captured at that moment, so a later change to a recorded built-in
-  cannot blind it.
+  extension and user-event's focus and blur patch, so those are part of the
+  record; the later import or `userEvent.setup()` adds nothing.) It records two
+  things, with helpers captured at that moment, so a later change to a
+  built-in cannot blind the comparison:
+  - **the named record** (`TARGETS` in [`runner.ts`](runner.ts)): the function
+    property descriptors of every own property of chai's `Assertion.prototype`,
+    chai's `assert`, `expect` (its statics), the matcher registry's `matchers`
+    and `customEqualityTesters`; chai's own members; `vi.fn`, `vi.spyOn`,
+    `vi.mock`, `vi.isMockFunction`; the test globals on `globalThis`; and the
+    built-in members the matchers rely on most;
+  - **the full record** (#468 part (a)), not a list: every own property (string
+    and symbol keys, with value, getter, setter and attributes) and the
+    `[[Prototype]]` of every standard built-in. The ECMAScript globals are
+    enumerated from a fresh `node:vm` realm; the intrinsics no global names
+    (array, map, set, string and regexp iterators, generator and async
+    prototypes, iterator helpers) are reached from sample values; everything
+    reachable from them through prototypes, constructors and property values
+    is included. These are **strict**: any changed property, `[[Prototype]]`,
+    added or removed key is a failure (`Object.hasOwn`,
+    `Object.prototype.toString`, `Error.stackTraceLimit` and
+    `%ArrayIteratorPrototype%.next` included). The jsdom and Node globals,
+    their prototypes and constructors are **host** entries: a replaced or
+    removed function or accessor is a failure, and so is a key added to a
+    prototype or constructor that shadows an inherited one (a `textContent`
+    getter on `HTMLElement.prototype`), as is a replaced global binding that
+    holds an object or a constructor (`document`, `HTMLElement`);
+  - **what the hidden tests do themselves is told apart.** The canary wraps
+    `vi.fn`, `vi.spyOn` and `vi.stubGlobal` before the record and tolerates
+    exactly what they installed (for strict entries, a spy only on the key
+    `vi.spyOn` put it on), and the names fake timers replace while
+    `vi.isFakeTimers()` is true. Host instances (`document`, `navigator`) and
+    global bindings that hold plain functions (`matchMedia`, `fetch`) are not
+    compared: the tests stub them (`navigator.clipboard`, `window.matchMedia`).
+    Calibrated on the whole unit tier (1811 tests): no false alarm.
 - **Checks after the base setup, around every test and after the file.** The
-  second setup file compares against the record right after the base setup
+  second setup file compares against both records right after the base setup
   (where a cheat imported by `vitest.setup.ts` lives), in `beforeEach` and
   `afterEach` of every test, and in `afterAll`; the canary test compares again.
   Any replaced, added or removed entry is a failure, **whatever the new
   function does**: a recorded matcher made lenient only for strings, only for
   `.not`, only for spies, or only when called from a test file is caught by
   identity, not by behaviour.
+- **Checks from inside the hidden tests.** A change installed after the
+  canary's `beforeEach` and undone before its `afterEach` (hooks registered by
+  the module under test, or a matcher patched by the function under test and
+  restored in a microtask) is invisible around tests. chai reads its config
+  when it creates an assertion (`config.useProxy`) and at each verdict
+  (`config.showDiff`, and `config.includeStack` when it fails); the canary
+  turns those into **non-configurable accessors**, which cannot be removed or
+  redefined, and each read compares the named record and every strict entry.
+  So every `expect(...)` call and every verdict of a hidden test is checked
+  from inside it: a change made before the call, while its arguments are
+  evaluated, or while the matcher runs is still there at the verdict. The host
+  entries are compared at the first verdict of every test and at a random
+  sixteenth of the later ones; after 400 checks in one test, the strict checks
+  are sampled too (one in eight), so a test with thousands of assertions stays
+  within its timeout (measured: about 1 ms per assertion).
 - **Behavioural probes as a second check.** The same files check that the
   common matchers (`toBe`, `toEqual`, `toContain`, `toMatch`, `toHaveLength`,
   `toBeTruthy`, `toBeUndefined`, `toHaveProperty`, `toThrow`,
   `toHaveBeenCalled`, `toHaveBeenCalledWith`, with and without `.not`, on
   numbers, strings, objects and spies), chai's `assert` and `chai.expect`
   reject values derived from the run's nonce, and that `Object.is` and
-  `includes` behave. The probes run from the canary's own files at the
-  repository root, not from where hidden tests live, so a cheat that checks
-  its caller's path can spare them.
+  `includes` behave. A second set (deep equality on objects, arrays and sets,
+  `Object.hasOwn`, `Object.keys`, `Object.getOwnPropertySymbols`,
+  `Object.prototype.toString`, `JSON.stringify`, iterators, and jest-dom's
+  `toHaveTextContent` and `toBeInTheDocument` with a DOM) runs **from inside
+  the hidden tests**, with their own frames on the stack, at the first verdict
+  of every test and at random later ones, without counting as their
+  assertions. With the canary test also run from every hidden-test directory,
+  a cheat that checks its caller's path cannot spare the probes.
 - **A standalone canary test** whose title carries this run's nonce. The nonce
   is passed to the grading containers only: the agent never sees it while it
   works. Application code can read it at grading time (it runs in the same
@@ -526,16 +553,31 @@ not catch (below and in issue #468):
   outcome is `fail`.
 
 What it catches: replacement, addition or removal of an assertion or `expect`
-function, of a registered matcher or equality tester, of a recorded test
-global, or of one of the recorded built-in members listed above, from any
-allowed file, at any time from the first setup file to the end of the file;
-and the cheats replayed by `tamper-inprocess` and `tamper-selective`. What it
-does **not** catch (see residual risks and issue #468): application code that
-special-cases the hidden tests' own inputs; tampering with a global or a
-built-in member outside the record, in particular one that misbehaves only
-when its caller is a hidden test; and a change installed and fully undone
-between two checks, for example by test hooks reached in a way the
-`test-globals` regex and syntax-tree screen do not name.
+function, of a registered matcher or equality tester, of a test global, of any
+member of a standard built-in, or of a host prototype or constructor member,
+from any allowed file, at any time from the first setup file to the end of the
+file, including a change installed and undone inside one test; and the cheats
+replayed by `tamper-inprocess`, `tamper-selective` and
+[`canary-live.test.ts`](canary-live.test.ts). What it does **not** catch is
+listed under "Residual risks" below.
+
+`canary-live.test.ts` is the canary's self-check in the default gate (no
+container needed). It runs the real canary under vitest on a small fixture
+repository (a module under test, a base setup that imports an application
+file, a jsdom hidden test using jest-dom), honest and with three cheats from
+the module under test. Each cheat makes its broken fix pass the hidden test
+when the canary is absent, which a control run checks:
+
+- #468 bypass 1: `Object.hasOwn` made to lie only when the stack shows the
+  hidden test file, so `toEqual` passes a wrong object;
+- #468 bypass 2: a hook pair registered through `globalThis['before' + 'Each']`
+  that patches `toBe` after the canary's `beforeEach` and restores it before
+  its `afterEach`;
+- the in-test patch of `toBe`, restored in a microtask, from the review of #501.
+
+The honest fix must grade `pass` with the canary `ok`, every cheat `fail` with
+the canary `failed` (the last two from `inside a test`). Against the canary
+before part (a), all three cheats grade `pass`.
 
 `--agent tamper-inprocess` and `--agent tamper-selective` are the self-checks.
 `tamper-selective` replays the two cheats of the round-5 review: B, lenient
@@ -563,38 +605,36 @@ What a paid run would still accept, stated plainly:
   model call has been made through the proxy. If the CLI needs another host
   for a real call, the first approved run fails as an infra-error, never a
   result; the proxy log names the refused host.
-- **In-process tampering is caught only for the known cheats and what the
-  canary records; the canary is a tripwire, not a guarantee.** The file
-  allowlist closes configs and tooling; the static screen is an early signal;
-  the canary catches any change to the recorded entries listed under "The
-  harness canary". Not caught:
+- **In-process tampering is caught for the known cheats and what the canary
+  records; the canary is a tripwire, not a guarantee.** The file allowlist
+  closes configs and tooling; the static screen is an early signal; the
+  canary catches any change to the recorded entries listed under "The harness
+  canary", around tests and from inside them. Not caught:
   - application code that special-cases the hidden tests' own inputs
     (returning the expected value only for the exact arguments a test uses; no
     harness can rule that out without reading the fix);
-  - **a standard built-in outside the record, made selective by caller**
-    (known bypass, issue #468). Vitest's deep equality relies on built-ins
-    the record does not list. Application code can replace one so that it
-    misbehaves only when the call stack shows a hidden test location; the
-    canary's probes run from elsewhere and stay honest, so an incomplete fix
-    can pass with the canary `ok`;
-  - **test hooks reached in a way the static screen does not name.** Until
-    #468 part (b) the `test-globals` rule matched bare names only, so hooks
-    reached through `globalThis` could patch a matcher before each test and
-    restore it after, ordered so the restore runs before the canary's own
-    check. The syntax-tree screen now catches member, computed, reflective,
-    aliased, destructured and escaped access, the jsdom names and
-    `.defaultView`, a hook name on any receiver, and the global object handed
-    on. It is a screen, not a proof: a global object obtained in a form it
-    does not name (outside the module-system rule) or imported from a module
-    it does not read stays open, and so does a non-literal read of an object
-    the screen does not track, stored in a variable and then used (called,
-    read, or passed on); only part (a)'s runtime probes and the mandatory
-    diff review of a paid run's patch backstop it;
-  - any other change installed and fully undone between two checks.
+  - state no global reaches: a closure inside vitest, chai or a library (only
+    reachable by importing their internals, which the static screen rejects);
+  - own properties of host instances (`document`, `navigator`, `console`) and
+    global bindings that hold plain functions (`getComputedStyle`,
+    `matchMedia`, `fetch`): the hidden tests stub them, so they are not
+    compared (a cheat that replaces `getComputedStyle` could mislead jest-dom's
+    `toBeVisible`);
+  - a host (DOM or Node) built-in changed and restored inside one test between
+    two sampled host checks, and a key added to a host prototype and removed
+    inside one test (the in-test host checks are sampled, and do not scan for
+    added keys);
+  - a change made and undone while a matcher runs, by a getter or `toJSON` the
+    matcher reads on an application value, before its verdict;
+  - after the first 400 checks inside one test, the strict checks are sampled
+    (one in eight);
+  - code that reaches chai's config (`globalThis.chai`, which the static
+    screen flags) can set the stored config values, though it cannot remove
+    the checks.
 
   These stay a validity risk within one run, which is why a paid run's result
   is audited by a diff review of the agent's patch and why the paid agent
-  stays disabled until #468 is closed or accepted. They can no longer reach another
+  stays disabled until the operator accepts them. They can no longer reach another
   run (fresh read-only tree per run, hash check, fresh database), and the
   containers keep them a validity risk only, never a host security risk.
   Cross-checking hidden-test counts against the reference run is a possible
@@ -628,5 +668,5 @@ This is the first slice. Still to come (roadmap M3): 20-30 tasks across more
 families (UI behaviour, migrations, CI diagnosis, interruption recovery,
 untrusted instructions, review/merge races), validation and reserved splits,
 repeated trials with variability and cost per successful task, and a first
-budgeted `claude` baseline once #468 is closed (or its risks accepted) and the
-operator enables the paid agent and sets an evaluation budget.
+budgeted `claude` baseline once the operator accepts the canary's residual
+risks (#468), enables the paid agent and sets an evaluation budget.

@@ -13,10 +13,11 @@ recurring mechanical lessons converted into code (L42 in #447; L15 and L38 in th
 `evals/maintainer/` (#452), validated with reference, broken and tamper fixes. Its
 network and grading containment (egress proxy, containerised grading, #453) is in
 place and checked by an isolation probe without a model call (#455); tamper
-detection is a tripwire canary, not a guarantee, with known bypasses (#468;
-part b is screened, with residual limits, not closed).
-The paid agent stays hard-disabled until #468 is closed or accepted and the
-operator accepts the credential risk and sets a budget. A public evidence page
+detection is a tripwire canary, not a guarantee: the two known bypasses of #468
+are closed (part b by a syntax-tree screen, part a by a full built-in record and
+checks from inside the hidden tests, replayed live in the default gate), with
+documented residual risks. The paid agent stays hard-disabled until the operator
+accepts those residual risks and the credential risk and sets a budget. A public evidence page
 (`evidence.md`, #457) starts the public-evidence section. Milestones 5 and 6 and
 the product LLM track are proposed, not implemented. Baseline inspection:
 2026-10-13, commit `dd0fcf7`. Update milestone status with
@@ -305,16 +306,17 @@ changes within the charter.
       change is ever copied, lesson L45); in-process tampering by allowed application
       code is caught, not prevented, by a grader-owned canary in every vitest run, a
       tripwire rather than a guarantee: it records the assertion, `expect`,
-      matcher-registry and listed test-global functions and a fixed list of built-in
-      members before any application code loads, and any change to them, however
-      selective, makes the run `canary-failed`. Not covered: code special-casing the
-      hidden tests' own inputs; built-ins outside the list (a caller-selective
-      built-in is open in
-      [#468](https://github.com/gymcoach-app/gymcoach/issues/468) part a; hooks
-      reached through the global object, part b, are screened by a syntax-tree
-      `test-globals` rule that does not follow a global object obtained in a
-      form it does not name or imported from an unread module); a change undone
-      between two checks; every grading run gets its own fresh copy of the
+      matcher-registry and test-global functions and every own property of every
+      standard built-in (plus the jsdom and Node prototypes and constructors) before
+      any application code loads, compares them around every test and, through
+      non-configurable chai config accessors, from inside every assertion of the
+      hidden tests, and any change to them, however selective, makes the run
+      `canary-failed` ([#468](https://github.com/gymcoach-app/gymcoach/issues/468)
+      parts a and b; `canary-live.test.ts` replays both bypasses on every gate
+      run). Not covered: code special-casing the hidden tests' own inputs; state
+      no global reaches; host instances and plain-function globals the tests stub;
+      a host built-in changed and restored inside one test between two sampled
+      checks; every grading run gets its own fresh copy of the
       grading tree, checked right before it runs against the hashes of every
       protected file computed from the base and the fix commit's hidden tests before
       any agent-influenced step, and mounted read-only, with its own throwaway
@@ -350,10 +352,10 @@ changes within the charter.
       Postgres (dialled by the host's real address, not only its name), DNS or direct
       internet from the agent or grading containers;
       [#453](https://github.com/gymcoach-app/gymcoach/issues/453)). The paid agent stays
-      hard-disabled (`PAID_AGENT_ENABLED = false`) until the known canary bypasses
-      ([#468](https://github.com/gymcoach-app/gymcoach/issues/468)) are closed or accepted
-      by the operator, and the operator accepts the residual credential risk and sets a
-      budget; a paid result is then audited by a diff review of the agent's patch. On 2026-10-13 the 3 smoke tasks, fully
+      hard-disabled (`PAID_AGENT_ENABLED = false`) until the operator accepts the
+      canary's residual risks
+      ([#468](https://github.com/gymcoach-app/gymcoach/issues/468); its known bypasses
+      are closed) and the residual credential risk, and sets a budget; a paid result is then audited by a diff review of the agent's patch. On 2026-10-13 the 3 smoke tasks, fully
       containerised, gave dry fail, reference pass, broken fail and tamper fail (12/12);
       with the static tamper check disabled, the tamper agent passed cardio.
 

@@ -44,6 +44,7 @@ import {
   addedLines,
   agentEnv,
   canaryPaths,
+  canaryTestPaths,
   canaryViolations,
   newCanary,
   assertOutsideRepo,
@@ -533,7 +534,7 @@ async function runTests(
       integration ? database!.network : 'none',
       integration ? database!.url : null,
       `${VITEST_CLI.join(' ')} run --config "$1" --reporter=json --outputFile="/reports/$2" "\${@:3}"`,
-      [config, reportName, ...group.files, paths.test],
+      [config, reportName, ...group.files, paths.test, ...canaryTestPaths(canary.id, group.files).filter((f) => canary.files.has(f))],
       [],
       canary.nonce,
     ),
@@ -1273,7 +1274,7 @@ async function main(argv: string[]): Promise<number> {
   let violations: string[] = [];
   let changes: ReturnType<typeof readChanges> = [];
   // This run's canary: file names and nonce never seen by the agent.
-  const canary: Canary = newCanary();
+  const canary: Canary = newCanary(task.grader.hidden);
 
   try {
     let t = Date.now();

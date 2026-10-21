@@ -84,17 +84,18 @@ export function parseArgs(argv: string[]): RunArgs {
 // The paid agent is hard-disabled by this constant. Network and grading
 // containment (issue #453: egress limited to the model API, grading in
 // containers, credential handling) is in place and checked by
-// probe-isolation.ts. Tamper detection is a tripwire, not a guarantee: two known
-// canary bypasses stay open (issue #468). Only the operator flips this, in a
-// reviewed PR, after #468 is closed or its residual risks are accepted, after
-// accepting the credential risk described in evals/maintainer/README.md and
-// setting a budget. Any paid result also needs a diff review of the agent's
-// patch, since grading alone cannot prove the grader was not tampered with.
+// probe-isolation.ts. Tamper detection is a tripwire, not a guarantee: the
+// canary's known bypasses of #468 are closed, but it keeps documented residual
+// risks (below and in evals/maintainer/README.md). Only the operator flips
+// this, in a reviewed PR, after accepting those residual risks and the
+// credential risk described in the README, and after setting a budget. Any
+// paid result also needs a diff review of the agent's patch, since grading
+// alone cannot prove the grader was not tampered with.
 export const PAID_AGENT_ENABLED = false;
 
 export const PAID_AGENT_DISABLED_REASON =
   '--agent claude is disabled: PAID_AGENT_ENABLED in evals/maintainer/runner.ts is false. ' +
-  'The operator enables it in a reviewed PR after #468 is closed or its residual risks are accepted, ' +
+  'The operator enables it in a reviewed PR after accepting the canary residual risks (#468), ' +
   'after accepting the credential risk (evals/maintainer/README.md) and setting a budget';
 
 // A paid run needs an explicit cap, an operator approval in the environment and
@@ -491,33 +492,53 @@ export function groupByTier(files: string[]): { tier: 'unit' | 'integration'; fi
 // the base setup imports can call expect.extend, or the module under test can
 // replace Object.is, and every hidden assertion passes (reviews of #455). The
 // static screen is only an early signal. The canary is a tripwire for that
-// class, not a guarantee (known gaps: issue #468): harness files, written into every grading tree like the
-// hidden tests (outside the agent's reach, hash-checked), named per run.
+// class, not a guarantee (residual risks below, issue #468): harness files,
+// written into every grading tree like the hidden tests (outside the agent's
+// reach, hash-checked), named per run.
 //
 // Identity, not behaviour, is the core check. A grader-owned wrapper config
 // PREPENDS a setup file to the base setup files, so it runs before any
-// application module is imported. It records the function references of every
-// own property of chai's Assertion prototype, chai's assert, expect and its
-// statics, the matcher and equality-tester registries, the listed test
-// globals, and the built-in members listed in TARGETS below, nothing else
-// (not Object.hasOwn, Object.prototype methods, Error.stackTraceLimit, timers,
-// Date). For the unit tier it first applies the base
-// setup's own jest-dom extension, so those matchers are part of the record.
-// A later setup file and hooks compare against that record after the base
-// setup, before and after every test, and after the file: any replaced, added
-// or removed recorded entry is a canary failure, whatever it does and however
-// selective it is (by value type, by caller, by .not). Behavioural probes stay as a
-// second, independent check. A standalone test whose title carries this run's
-// nonce proves the canary ran at all; a run without it is a fail.
+// application module is imported. It records two things. The named record:
+// the function references of every own property of chai's Assertion
+// prototype, chai's assert, expect and its statics, the matcher and
+// equality-tester registries, the test globals, and the built-in members
+// listed in TARGETS. The full record (#468 part a): every own property, with
+// its attributes, and the [[Prototype]] of every standard built-in, not a
+// list: the ECMAScript globals (enumerated from a fresh realm), the intrinsics
+// no global names (iterator and generator prototypes), and everything
+// reachable from them; plus the jsdom and Node globals, their prototypes and
+// constructors. For the unit tier it first applies the base setup's own
+// jest-dom extension and user-event's focus patch, so those are part of the
+// record. A later setup file and hooks compare against both records after the
+// base setup, before and after every test, and after the file.
+//
+// Checks around tests cannot see a change installed and undone inside one, so
+// the canary also checks from inside the hidden tests: chai reads its config
+// when it creates an assertion and at each verdict, and the canary makes those
+// reads non-configurable accessors that compare the named record and every
+// ECMAScript entry each time, the host entries and a set of behavioural probes
+// at the first verdict of every test and at random later ones. Those probes run
+// with the hidden test's own frames on the stack, and the canary test itself
+// also runs from every directory that holds a hidden test: a cheat that
+// misbehaves only for a hidden-test caller misbehaves for them too. The hidden
+// tests' own stubs, spies and fake timers (through vi) are told apart and
+// tolerated. Any other replaced, added or removed recorded entry is a canary
+// failure, whatever it does and however selective it is (by value type, by
+// caller, by .not). A standalone test whose title carries this run's nonce
+// proves the canary ran at all; a run without it is a fail. canary-live.test.ts
+// replays the #468 bypasses against it on every gate run.
 //
 // What it does not cover (residual risks in the README, issue #468):
-// application code that special-cases the hidden tests' own inputs; a global
-// or built-in member outside TARGETS, including one made to misbehave only
-// when its caller is a hidden test, since the probes run from the repository
-// root; and a change installed and fully undone between two checks, for
-// example by hooks reached in a way the test-globals rule's regex and
-// syntax-tree screen do not name (a global object obtained through a module
-// the screen does not read).
+// application code that special-cases the hidden tests' own inputs; state no
+// global reaches (a closure inside vitest or a library); own properties of
+// host instances (document, navigator) and global bindings that hold plain
+// functions (getComputedStyle, matchMedia), which the tests themselves stub;
+// a host built-in (DOM, Node) changed and restored inside one test between
+// two sampled checks, or a key added to a host prototype and removed inside
+// one test; a change made and undone while a matcher runs, from a getter it
+// reads; after the first 400 checks of one test, checks are sampled; and code
+// that reaches chai's config (globalThis.chai) can still set the stored
+// values, though not remove the checks.
 export const CANARY_FAILURE = 'harness integrity check failed';
 export const CANARY_TITLE = 'harness integrity';
 
@@ -553,15 +574,20 @@ export function canaryPaths(id: string): {
 // first setup file, before any application code. Every helper it uses is
 // captured into a local first, so a later change to a built-in cannot blind it.
 const CANARY_GUARD = `
+import vm from 'node:vm';
 import { assert, chai, expect, vi } from 'vitest';
 
 const FAIL = ${JSON.stringify(CANARY_FAILURE)};
 const gOPD = Object.getOwnPropertyDescriptor;
 const ownKeys = Reflect.ownKeys;
-const nullObject = Object.create.bind(null, null) as () => Record<string, unknown>;
+const reflectHas = Reflect.has;
+const apply = Reflect.apply;
+const defineProperty = Object.defineProperty;
+const getProto = Object.getPrototypeOf;
+const nullObject = Object.create.bind(null, null) as () => Record<string | symbol, unknown>;
 const hasOwn = Function.prototype.call.bind(Object.prototype.hasOwnProperty) as (
   o: object,
-  k: string,
+  k: string | symbol,
 ) => boolean;
 // chai keeps per-object state in a data property named __flags, created lazily
 // on whatever object a flag is first set (the vitest expect included, during a
@@ -635,27 +661,546 @@ function snapshot(): Entry[] {
   return out;
 }
 
+// user-event replaces HTMLElement.prototype.focus and blur the first time a
+// test calls userEvent.setup(). Applied here, before the record, so the
+// replaced methods are the recorded ones (skipped without a DOM or without
+// user-event).
+if (typeof (globalThis as { document?: unknown }).document !== 'undefined') {
+  try {
+    const { userEvent } = await import('@testing-library/user-event');
+    userEvent.setup();
+  } catch {
+    // not installed
+  }
+}
+
+// --- what the test code itself changes, told apart from what anything else does
+// The hidden tests may stub and spy (vi.spyOn(Math, 'random'), vi.stubGlobal,
+// fake timers). Those go through vi, which application code cannot reach
+// without tripping the static screen, so the canary wraps vi.fn, vi.spyOn and
+// vi.stubGlobal before the record and tolerates exactly what they installed.
+const isObj = (v: unknown): v is object =>
+  v !== null && (typeof v === 'object' || typeof v === 'function');
+const mocks = new WeakSet<object>();
+const markMock = WeakSet.prototype.add.bind(mocks) as (o: object) => unknown;
+const isMock = WeakSet.prototype.has.bind(mocks) as (o: unknown) => boolean;
+const spied = new WeakMap<object, Record<string | symbol, unknown>>();
+const spiedGet = WeakMap.prototype.get.bind(spied) as (o: object) => Record<string | symbol, unknown> | undefined;
+const spiedSet = WeakMap.prototype.set.bind(spied) as (o: object, v: Record<string | symbol, unknown>) => unknown;
+const stubs = nullObject();
+const V = vi as unknown as Record<string, unknown>;
+const isFakeTimers =
+  typeof V.isFakeTimers === 'function' ? ((V.isFakeTimers as () => boolean).bind(vi) as () => boolean) : () => false;
+function wrapVi(name: string, after: (result: unknown, args: unknown[]) => void): void {
+  const orig = V[name];
+  if (typeof orig !== 'function') return;
+  V[name] = function (this: unknown, ...args: unknown[]) {
+    const result = apply(orig as (...a: unknown[]) => unknown, this, args);
+    after(result, args);
+    return result;
+  };
+}
+wrapVi('fn', (r) => {
+  if (isObj(r)) markMock(r);
+});
+wrapVi('spyOn', (r, a) => {
+  if (!isObj(r)) return;
+  markMock(r);
+  const target = a[0];
+  if (!isObj(target)) return;
+  let keys = spiedGet(target);
+  if (!keys) {
+    keys = nullObject();
+    spiedSet(target, keys);
+  }
+  keys[a[1] as string | symbol] = r;
+});
+wrapVi('stubGlobal', (_r, a) => {
+  stubs[toStr(a[0])] = [a[1]];
+});
+// Names fake timers replace while they are on (vi.useFakeTimers).
+const FAKE = nullObject();
+const FAKE_NAMES = ['Date', 'Intl', 'setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'setImmediate', 'clearImmediate', 'queueMicrotask', 'nextTick', 'hrtime', 'performance', 'now', 'requestAnimationFrame', 'cancelAnimationFrame', 'requestIdleCallback', 'cancelIdleCallback'];
+for (let i = 0; i < FAKE_NAMES.length; i += 1) FAKE[FAKE_NAMES[i]!] = true;
+
+// --- checks inside a test --------------------------------------------------------
+// Checks around tests cannot see a change installed and undone inside one (a
+// matcher patched by the code under test, restored in a microtask before
+// afterEach). chai reads its config on every assertion it creates
+// (config.useProxy) and in every verdict (config.showDiff, and
+// config.includeStack when it fails). The canary turns
+// those into non-configurable accessors, so they cannot be removed or redefined,
+// and each read runs a check from inside the hidden test's own call stack.
+let ready = false;
+let busy = false;
+let sticky = '';
+let probedThisTest = false;
+let readsThisTest = 0;
+const config = chai.config as unknown as Record<string, unknown>;
+const HOOKS = ['useProxy', 'showDiff', 'includeStack'];
+for (let i = 0; i < HOOKS.length; i += 1) {
+  const key = HOOKS[i]!;
+  let stored = config[key];
+  defineProperty(config, key, {
+    configurable: false,
+    enumerable: true,
+    get() {
+      inTest(key !== 'useProxy');
+      return stored;
+    },
+    set(v: unknown) {
+      stored = v;
+    },
+  });
+}
+
 const RECORD = snapshot();
 
 const recorded = nullObject();
 for (let i = 0; i < RECORD.length; i += 1) recorded[RECORD[i]![0]] = RECORD[i]![1];
 
-export function check(where: string): void {
+// The same record, compiled for the checks inside a test: no names are built
+// unless something changed.
+const nTarget: number[] = [];
+const nKey: (string | symbol)[] = [];
+const nValue: unknown[] = [];
+const nGet: unknown[] = [];
+const nSet: unknown[] = [];
+const nCount: number[] = [];
+for (let t = 0; t < TARGETS.length; t += 1) {
+  const obj = TARGETS[t]![1];
+  if (!isObj(obj)) continue;
+  const listed = TARGETS[t]![2];
+  const all = listed ?? ownKeys(obj);
+  let count = 0;
+  for (let k = 0; k < all.length; k += 1) {
+    if (!listed && isState(all[k]!)) continue;
+    const d = gOPD(obj, all[k]!);
+    const e = nKey.length;
+    nTarget[e] = t;
+    nKey[e] = all[k]!;
+    nValue[e] = d ? d.value : undefined;
+    nGet[e] = d ? d.get : undefined;
+    nSet[e] = d ? d.set : undefined;
+    count += 1;
+  }
+  nCount[t] = listed ? -1 : count;
+}
+
+function compareNamed(out: string[]): void {
+  let changed = false;
+  for (let e = 0; e < nKey.length && !changed; e += 1) {
+    const d = gOPD(TARGETS[nTarget[e]!]![1] as object, nKey[e]!);
+    if (!d) changed = nValue[e] !== undefined || nGet[e] !== undefined || nSet[e] !== undefined;
+    else changed = !objectIs(d.value, nValue[e]) || !objectIs(d.get, nGet[e]) || !objectIs(d.set, nSet[e]);
+  }
+  for (let t = 0; t < TARGETS.length && !changed; t += 1) {
+    const obj = TARGETS[t]![1];
+    if (!isObj(obj) || nCount[t] === -1) continue;
+    const keys = ownKeys(obj);
+    let count = 0;
+    for (let k = 0; k < keys.length; k += 1) if (!isState(keys[k]!)) count += 1;
+    changed = count !== nCount[t];
+  }
+  if (!changed) return;
   const now = snapshot();
   const seen = nullObject();
-  const changed: string[] = [];
   for (let i = 0; i < now.length; i += 1) {
     const name = now[i]![0];
     seen[name] = true;
-    if (!hasOwn(recorded, name)) changed[changed.length] = name + ' (added)';
-    else if (!objectIs(now[i]![1], recorded[name])) changed[changed.length] = name;
+    if (!hasOwn(recorded, name)) out[out.length] = name + ' (added)';
+    else if (!objectIs(now[i]![1], recorded[name])) out[out.length] = name;
   }
   for (let i = 0; i < RECORD.length; i += 1)
-    if (!hasOwn(seen, RECORD[i]![0])) changed[changed.length] = RECORD[i]![0] + ' (removed)';
-  if (changed.length) {
-    let list = '';
-    for (let i = 0; i < changed.length && i < 12; i += 1) list += (i ? ', ' : '') + changed[i];
-    throw new Error(FAIL + ' (' + where + '): changed since before the base setup: ' + list);
+    if (!hasOwn(seen, RECORD[i]![0])) out[out.length] = RECORD[i]![0] + ' (removed)';
+}
+
+// --- the full record ---------------------------------------------------------------
+// Every own property (string and symbol keys) of every standard built-in, not a
+// list: the ECMAScript globals (enumerated from a fresh realm), the intrinsics
+// no global names (iterator, generator and async prototypes, reached from
+// sample values), and everything reachable from them through [[Prototype]],
+// constructors' prototypes and property values. STRICT objects: any change to a
+// property (value, getter, setter, attributes), to [[Prototype]], or any added
+// or removed key is a failure; only a spy that vi.spyOn put on that exact key
+// is tolerated. HOST objects (jsdom and Node globals, reached the same way from
+// every other global): a replaced or removed function or accessor is a failure,
+// and so is a key added to a prototype or constructor that shadows an inherited
+// one (a textContent getter on HTMLElement.prototype); the hidden tests' own
+// stubs, spies, mock functions and fake timers are tolerated. HOST instances
+// (navigator, document) are not compared at all, and neither are the global
+// bindings that hold plain functions (window.matchMedia): the tests stub both.
+const STRICT = 1;
+const HOST = 2;
+const objs: object[] = [];
+const kinds: number[] = [];
+const labels: string[] = [];
+const protos: unknown[] = [];
+const keysets: Record<string | symbol, unknown>[] = [];
+const isProtoObj: boolean[] = [];
+const starts: number[] = [];
+const eKey: (string | symbol)[] = [];
+const eValue: unknown[] = [];
+const eGet: unknown[] = [];
+const eSet: unknown[] = [];
+const eFlags: number[] = [];
+const eStrict: boolean[] = [];
+const eWatch: boolean[] = [];
+const index = new WeakMap<object, number>();
+const indexGet = WeakMap.prototype.get.bind(index) as (o: object) => number | undefined;
+const indexSet = WeakMap.prototype.set.bind(index) as (o: object, v: number) => unknown;
+const prototypeObjects = new WeakSet<object>();
+const markPrototype = WeakSet.prototype.add.bind(prototypeObjects) as (o: object) => unknown;
+const isPrototype = WeakSet.prototype.has.bind(prototypeObjects) as (o: object) => boolean;
+const flagsOf = (d: PropertyDescriptor) =>
+  (d.writable ? 1 : 0) + (d.enumerable ? 2 : 0) + (d.configurable ? 4 : 0) + (hasOwn(d, 'value') ? 8 : 0);
+const constructorLike = (f: unknown) => {
+  if (typeof f !== 'function') return false;
+  const d = gOPD(f, 'prototype');
+  return !!d && isObj(d.value);
+};
+
+function visit(o: unknown, kind: number, label: string): void {
+  if (!isObj(o) || o === G || indexGet(o) !== undefined) return;
+  indexSet(o, objs.length);
+  objs[objs.length] = o;
+  kinds[kinds.length] = kind;
+  labels[labels.length] = label;
+}
+
+// The global object: its bindings of ECMAScript and test-framework names are
+// STRICT (a replaced Object or expect is a failure); every other binding is
+// HOST, where a replaced object is a failure too (a fake document).
+const intrinsicNames = vm.runInNewContext('Object.getOwnPropertyNames(globalThis)') as string[];
+const strictName = nullObject();
+for (let i = 0; i < intrinsicNames.length; i += 1)
+  if (intrinsicNames[i] !== 'console') strictName[intrinsicNames[i]!] = true;
+const FRAMEWORK_NAMES = ['expect', 'vi', 'vitest', 'assert', 'chai', 'beforeEach', 'afterEach', 'beforeAll', 'afterAll', 'it', 'test', 'describe', 'suite', 'onTestFinished', 'onTestFailed', 'expectTypeOf', 'assertType'];
+for (let i = 0; i < FRAMEWORK_NAMES.length; i += 1) strictName[FRAMEWORK_NAMES[i]!] = true;
+
+objs[0] = G;
+kinds[0] = HOST;
+labels[0] = 'globalThis';
+indexSet(G, 0);
+for (let i = 0; i < intrinsicNames.length; i += 1) {
+  const name = intrinsicNames[i]!;
+  if (name === 'console' || name === 'globalThis') continue;
+  const d = gOPD(G, name);
+  if (d) visit(d.value, STRICT, name);
+}
+const SAMPLES: [string, () => unknown][] = [
+  ['%GeneratorFunction%', () => function* () {}],
+  ['%Generator%', () => (function* () {})()],
+  ['%AsyncFunction%', () => async function () {}],
+  ['%AsyncGeneratorFunction%', () => async function* () {}],
+  ['%AsyncGenerator%', () => (async function* () {})()],
+  ['%ArrayIterator%', () => [][Symbol.iterator]()],
+  ['%MapIterator%', () => new Map().entries()],
+  ['%SetIterator%', () => new Set().values()],
+  ['%StringIterator%', () => ''[Symbol.iterator]()],
+  ['%RegExpStringIterator%', () => /a/g[Symbol.matchAll]('a')],
+  ['%IteratorHelper%', () => (typeof Iterator === 'function' ? Iterator.from([]).map((x: unknown) => x) : null)],
+  ['%WrapForValidIterator%', () => (typeof Iterator === 'function' ? Iterator.from({ next: () => ({ done: true, value: undefined }) }) : null)],
+  ['%ThrowTypeError%', () => gOPD(Function.prototype, 'caller')?.get],
+  ['%Arguments%', function () {
+    return arguments;
+  }],
+];
+for (let i = 0; i < SAMPLES.length; i += 1) {
+  let sample: unknown;
+  try {
+    sample = SAMPLES[i]![1]();
+  } catch {
+    continue;
+  }
+  if (!isObj(sample)) continue;
+  visit(getProto(sample), STRICT, SAMPLES[i]![0] + '.[[Prototype]]');
+  if (typeof sample === 'function') visit(sample, STRICT, SAMPLES[i]![0]);
+}
+// Grader-owned objects: chai's config carries the hooks above.
+visit(config, STRICT, 'chai.config');
+
+// Breadth first: the STRICT closure first, so an object reachable from both an
+// intrinsic and a host global (Object.prototype) stays STRICT; then the host
+// globals and their closure.
+function expand(from: number): void {
+  for (let i = from; i < objs.length; i += 1) {
+    const o = objs[i]!;
+    const kind = kinds[i]!;
+    if (i > 0) {
+      visit(getProto(o), kind, labels[i] + '.[[Prototype]]');
+      if (typeof o === 'function') {
+        const p = gOPD(o, 'prototype');
+        if (p && isObj(p.value)) markPrototype(p.value);
+      }
+    }
+    const keys = ownKeys(o);
+    for (let k = 0; k < keys.length; k += 1) {
+      const d = gOPD(o, keys[k]!);
+      if (!d) continue;
+      let v: unknown = d.value;
+      // jsdom's interfaces are getters on the global object: read once here,
+      // before any application code.
+      if (i === 0 && d.get && !hasOwn(strictName, keys[k]!)) {
+        try {
+          v = apply(d.get, G, []);
+        } catch {
+          v = undefined;
+        }
+      }
+      if (!isObj(v)) continue;
+      if (i === 0) {
+        if (kind === HOST && !hasOwn(strictName, keys[k]!)) visit(v, HOST, toStr(keys[k]));
+      } else if (kind === STRICT ? typeof v !== 'function' || constructorLike(v) : constructorLike(v) || keys[k] === 'prototype') {
+        visit(v, kind, labels[i] + '.' + toStr(keys[k]));
+      }
+    }
+  }
+}
+expand(1);
+expand(0);
+
+for (let i = 0; i < objs.length; i += 1) {
+  const o = objs[i]!;
+  protos[i] = getProto(o);
+  isProtoObj[i] = isPrototype(o) || typeof o === 'function';
+  starts[i] = eKey.length;
+  const set = nullObject();
+  const keys = ownKeys(o);
+  for (let k = 0; k < keys.length; k += 1) {
+    const key = keys[k]!;
+    if (i > 0 && isState(key)) continue;
+    const d = gOPD(o, key);
+    if (!d) continue;
+    set[key] = true;
+    const e = eKey.length;
+    eKey[e] = key;
+    eValue[e] = d.value;
+    eGet[e] = d.get;
+    eSet[e] = d.set;
+    eFlags[e] = flagsOf(d);
+    eStrict[e] = i === 0 ? hasOwn(strictName, key) || typeof key === 'symbol' : kinds[i] === STRICT;
+    // A HOST binding of the global object is watched when it holds an object
+    // or a constructor (document, navigator, HTMLElement). Plain functions
+    // (matchMedia, scrollTo, getComputedStyle) are replaced and removed by
+    // the tests themselves, so they are not compared.
+    if (i === 0 && !eStrict[e]) {
+      let v: unknown = d.value;
+      if (d.get) {
+        try {
+          v = apply(d.get, G, []);
+        } catch {
+          v = undefined;
+        }
+      }
+      eWatch[e] = isObj(v) && (typeof v !== 'function' || constructorLike(v));
+    } else eWatch[e] = true;
+  }
+  keysets[i] = set;
+}
+starts[objs.length] = eKey.length;
+
+function tolerated(o: object, key: string | symbol, d: PropertyDescriptor | undefined, strict: boolean): boolean {
+  const spies = spiedGet(o);
+  if (d && spies && hasOwn(spies, key)) {
+    const s = spies[key];
+    if (objectIs(d.value, s) || objectIs(d.get, s) || objectIs(d.set, s)) return true;
+    // vi.spyOn on a getter-backed global (window.addEventListener) installs a
+    // new getter that returns the spy.
+    if (d.get) {
+      try {
+        if (objectIs(apply(d.get, o, []), s)) return true;
+      } catch {
+        // not tolerated
+      }
+    }
+  }
+  if (o === G && typeof key === 'string' && hasOwn(stubs, key)) {
+    const stub = stubs[key] as unknown[];
+    if (d ? objectIs(d.value, stub[0]) : stub[0] === undefined) return true;
+  }
+  if (typeof key === 'string' && hasOwn(FAKE, key) && (o === G || !strict) && isFakeTimers()) return true;
+  if (!strict && d && (isMock(d.value) || isMock(d.get) || isMock(d.set))) return true;
+  return false;
+}
+
+function compareFull(withHost: boolean, out: string[], scanHostKeys = true, scanKeys = true): void {
+  for (let i = 0; i < objs.length && out.length < 12; i += 1) {
+    // HOST instances (navigator, document, console) are the tests' own
+    // playground (navigator.clipboard, navigator.onLine): only prototypes,
+    // constructors and the global bindings are compared.
+    if (kinds[i] === HOST && i > 0 && (!withHost || !isProtoObj[i])) continue;
+    const o = objs[i]!;
+    const strictObject = kinds[i] === STRICT;
+    if (i > 0 && !objectIs(getProto(o), protos[i])) out[out.length] = labels[i] + '.[[Prototype]]';
+    const from = starts[i]!;
+    const to = starts[i + 1]!;
+    for (let e = from; e < to; e += 1) {
+      const strict = eStrict[e]!;
+      if ((!withHost && !strict) || !eWatch[e]) continue;
+      const key = eKey[e]!;
+      const d = gOPD(o, key);
+      let same: boolean;
+      // A removed global binding fails loudly in the tests that need it.
+      if (!d) same = i === 0 && !strict;
+      else if (strict)
+        same =
+          objectIs(d.value, eValue[e]) && objectIs(d.get, eGet[e]) && objectIs(d.set, eSet[e]) && flagsOf(d) === eFlags[e];
+      else
+        same =
+          objectIs(d.get, eGet[e]) &&
+          objectIs(d.set, eSet[e]) &&
+          (!(typeof eValue[e] === 'function' || (i === 0 && isObj(eValue[e]))) || objectIs(d.value, eValue[e]));
+      if (!same && !tolerated(o, key, d, strict))
+        out[out.length] = labels[i] + '.' + toStr(key) + (d ? '' : ' (removed)');
+    }
+    if (!scanKeys || (!strictObject && (!withHost || !scanHostKeys))) continue;
+    const keys = ownKeys(o);
+    if (keys.length === to - from && out.length === 0) continue;
+    const set = keysets[i]!;
+    const parent = getProto(o);
+    for (let k = 0; k < keys.length; k += 1) {
+      const key = keys[k]!;
+      if (hasOwn(set, key) || isState(key)) continue;
+      const added = strictObject || (isProtoObj[i] && parent !== null && reflectHas(parent as object, key));
+      if (added && !tolerated(o, key, gOPD(o, key), strictObject))
+        out[out.length] = labels[i] + '.' + toStr(key) + ' (added)';
+    }
+  }
+}
+
+// --- behavioural probes from inside a hidden test -------------------------------
+// Run from a chai hook, so the hidden test's own frames are on the stack: a
+// cheat that misbehaves only when its caller is a hidden test misbehaves for
+// these probes too. They do not count as the test's assertions.
+const nonce = toStr(process.env.EVAL_CANARY_NONCE ?? '');
+const seed = (parseInt(nonce.slice(0, 6) || '1', 16) % 9973) + 3;
+const random = Math.random;
+const getState = expect.getState as () => { assertionCalls: number };
+const setState = expect.setState as (s: { assertionCalls: number }) => void;
+const doc = G.document as Document | undefined;
+function throws(fn: () => unknown): boolean {
+  try {
+    fn();
+    return false;
+  } catch {
+    return true;
+  }
+}
+function probeInside(): string {
+  const a = seed;
+  const b = seed + 1 + (seed % 5);
+  const s = 'v' + a;
+  const t = 'w' + b;
+  const problems: string[] = [];
+  const must = (ok: boolean, what: string) => {
+    if (!ok) problems[problems.length] = what;
+  };
+  const sym = Symbol(s);
+  const o: Record<string | symbol, unknown> = { k: a };
+  o[sym] = b;
+  must(Object.is(a, a) && !Object.is(a, b) && Object.is(NaN, NaN), 'Object.is altered');
+  must(Object.hasOwn(o, 'k') && !Object.hasOwn(o, t), 'Object.hasOwn altered');
+  must(Object.prototype.hasOwnProperty.call(o, 'k') && !Object.prototype.hasOwnProperty.call(o, t), 'hasOwnProperty altered');
+  must(Object.keys(o).length === 1 && Object.keys(o)[0] === 'k', 'Object.keys altered');
+  must(Object.getOwnPropertySymbols(o).length === 1, 'Object.getOwnPropertySymbols altered');
+  must(Object.prototype.toString.call([]) === '[object Array]' && Object.prototype.toString.call(o) === '[object Object]', 'Object.prototype.toString altered');
+  must(Array.isArray([a]) && !Array.isArray(o), 'Array.isArray altered');
+  must(JSON.stringify({ v: a }) === '{"v":' + a + '}', 'JSON.stringify altered');
+  must([...new Set([a, a, b])].length === 2 && [...[a, b]][1] === b, 'iterators altered');
+  must(s.includes('v') && !s.includes('w') && [a].includes(a) && ![a].includes(b), 'includes altered');
+  const before = getState().assertionCalls;
+  try {
+    must(throws(() => expect(a).toBe(b)), 'toBe accepts different numbers');
+    must(throws(() => expect(s).toBe(t)), 'toBe accepts different strings');
+    must(!throws(() => expect(a).toBe(a)), 'toBe rejects equal numbers');
+    must(throws(() => expect(a).not.toBe(a)), 'not.toBe accepts equal values');
+    must(throws(() => expect({ v: a }).toEqual({ v: b })), 'toEqual accepts different objects');
+    must(throws(() => expect([a, s]).toEqual([a, t])), 'toEqual accepts different arrays');
+    must(throws(() => expect(new Set([a])).toEqual(new Set([b]))), 'toEqual accepts different sets');
+    must(!throws(() => expect({ v: [a, s] }).toEqual({ v: [a, s] })), 'toEqual rejects equal objects');
+    must(throws(() => expect({ v: a }).toStrictEqual({ v: b })), 'toStrictEqual accepts different objects');
+    must(throws(() => expect({ v: a, w: s }).toMatchObject({ v: b })), 'toMatchObject accepts a different object');
+    must(throws(() => expect([a]).toContain(b)), 'toContain accepts a missing item');
+    must(throws(() => expect(s).toContain(t)), 'toContain accepts a missing substring');
+    must(throws(() => expect(() => a).toThrow()), 'toThrow accepts a function that does not throw');
+    const spy = vi.fn();
+    must(throws(() => expect(spy).toHaveBeenCalled()), 'toHaveBeenCalled accepts an uncalled spy');
+    spy(a);
+    must(throws(() => expect(spy).toHaveBeenCalledWith(b)), 'toHaveBeenCalledWith accepts other arguments');
+    must(throws(() => assert.strictEqual(a, b)), 'assert.strictEqual accepts different numbers');
+    if (doc && reflectHas(chai.Assertion.prototype, 'toHaveTextContent')) {
+      const el = doc.createElement('div');
+      el.textContent = s;
+      const e = expect(el) as unknown as { toHaveTextContent: (x: string) => void; toBeInTheDocument: () => void };
+      must(throws(() => e.toHaveTextContent(t)), 'toHaveTextContent accepts other text');
+      must(!throws(() => e.toHaveTextContent(s)), 'toHaveTextContent rejects its own text');
+      must(throws(() => e.toBeInTheDocument()), 'toBeInTheDocument accepts a detached element');
+      must(el.textContent === s, 'textContent altered');
+    }
+  } finally {
+    setState({ assertionCalls: before });
+  }
+  return problems.join('; ');
+}
+
+function fail(where: string, list: string[]): never {
+  let text = '';
+  for (let i = 0; i < list.length && i < 12; i += 1) text += (i ? ', ' : '') + list[i];
+  sticky = FAIL + ' (' + where + '): changed since before the base setup: ' + text;
+  throw new Error(sticky);
+}
+
+// From a chai hook: the named record and every STRICT entry when an assertion
+// is created and at each verdict (for the first 400 reads of a test, then at a
+// random eighth, so a test with thousands of assertions stays within its
+// timeout); the HOST entries (keys added to a host prototype are left to the
+// checks around tests) and the probes at the first verdict of every test and at
+// a random sixteenth of the later ones.
+function inTest(verdict: boolean): void {
+  if (!ready || busy) return;
+  if (sticky) throw new Error(sticky);
+  readsThisTest += 1;
+  const host = verdict && (!probedThisTest || random() < 0.0625);
+  if (!host && readsThisTest > 400 && random() >= 0.125) return;
+  busy = true;
+  try {
+    const out: string[] = [];
+    compareNamed(out);
+    // Added keys are scanned for at the verdict only: a key added to change a
+    // matcher's result is still there when the matcher reaches its verdict.
+    compareFull(host, out, false, verdict);
+    if (out.length) fail('inside a test', out);
+    if (host) {
+      probedThisTest = true;
+      const problems = probeInside();
+      if (problems) {
+        sticky = FAIL + ' (inside a test): ' + problems;
+        throw new Error(sticky);
+      }
+    }
+  } finally {
+    busy = false;
+  }
+}
+
+ready = true;
+
+export function startTest(): void {
+  probedThisTest = false;
+  readsThisTest = 0;
+}
+
+export function check(where: string): void {
+  if (sticky) throw new Error(sticky);
+  busy = true;
+  try {
+    const changed: string[] = [];
+    compareNamed(changed);
+    compareFull(true, changed);
+    if (changed.length) fail(where, changed);
+  } finally {
+    busy = false;
   }
 }
 `;
@@ -718,8 +1263,21 @@ export function probe(where: string): void {
 }
 `;
 
-export function canaryFiles(id: string): Map<string, Buffer> {
+// The canary test also runs from every directory that holds a hidden test
+// (canaryTestPaths), so its probes have the same file path shape as the hidden
+// tests: a check of the caller's path cannot spare them.
+export function canaryTestPaths(id: string, hiddenFiles: readonly string[]): string[] {
+  const dirs = new Set<string>();
+  for (const file of hiddenFiles) {
+    const dir = path.posix.dirname(file);
+    if (dir !== '.') dirs.add(dir);
+  }
+  return [...dirs].sort().map((dir) => `${dir}/x${id}.test.ts`);
+}
+
+export function canaryFiles(id: string, hiddenFiles: readonly string[] = []): Map<string, Buffer> {
   const p = canaryPaths(id);
+  const extraTests = canaryTestPaths(id, hiddenFiles);
   const head = `// Harness-owned integrity canary (evals/maintainer, runner.ts canaryFiles).\n`;
   const guard = head + CANARY_GUARD;
   // The first setup files of each tier: record before any application code.
@@ -733,18 +1291,19 @@ export function canaryFiles(id: string): Map<string, Buffer> {
   const setup =
     head +
     `import { afterAll, afterEach, assert, beforeAll, beforeEach, chai, expect, vi } from 'vitest';\n` +
-    `import { check } from './${p.guard}';\n` +
+    `import { check, startTest } from './${p.guard}';\n` +
     CANARY_PROBE +
     `check('after the base setup');\n` +
     `probe('after the base setup');\n` +
     `beforeAll(() => check('before the file'));\n` +
+    `beforeEach(() => startTest());\n` +
     `beforeEach(() => check('before a test'));\n` +
     `afterEach(() => check('after a test'));\n` +
     `afterAll(() => {\n  check('after the file');\n  probe('after the file');\n});\n`;
-  const test =
+  const test = (guardImport: string) =>
     head +
     `import { assert, chai, expect, it, vi } from 'vitest';\n` +
-    `import { check } from './${p.guard}';\n` +
+    `import { check } from '${guardImport}';\n` +
     CANARY_PROBE +
     `it(${JSON.stringify(`${CANARY_TITLE} `)} + nonce, () => {\n` +
     `  if (!/^[0-9a-f]{32}$/.test(nonce)) throw new Error(FAIL + ': no nonce');\n` +
@@ -763,7 +1322,7 @@ export function canaryFiles(id: string): Map<string, Buffer> {
     `import { mergeConfig } from 'vitest/config';\n` +
     `import base from './${base}';\n` +
     `const baseSetup = base.test?.setupFiles ?? [];\n` +
-    `const merged = mergeConfig(base, { test: { include: ['${p.test}'], isolate: true } });\n` +
+    `const merged = mergeConfig(base, { test: { include: [${[p.test, ...extraTests].map((t) => `'${t}'`).join(', ')}], isolate: true } });\n` +
     `merged.test = {\n` +
     `  ...merged.test,\n` +
     `  setupFiles: ['./${pre}', ...(Array.isArray(baseSetup) ? baseSetup : [baseSetup]), './${p.setup}'],\n` +
@@ -774,15 +1333,19 @@ export function canaryFiles(id: string): Map<string, Buffer> {
     [p.preUnit, Buffer.from(preUnit)],
     [p.preIntegration, Buffer.from(preIntegration)],
     [p.setup, Buffer.from(setup)],
-    [p.test, Buffer.from(test)],
+    [p.test, Buffer.from(test(`./${p.guard}`))],
+    ...extraTests.map((file): [string, Buffer] => [
+      file,
+      Buffer.from(test(path.posix.relative(path.posix.dirname(file), p.guard))),
+    ]),
     [p.unitConfig, Buffer.from(config('vitest.config', p.preUnit))],
     [p.integrationConfig, Buffer.from(config('vitest.integration.config', p.preIntegration))],
   ]);
 }
 
-export function newCanary(): Canary {
+export function newCanary(hiddenFiles: readonly string[] = []): Canary {
   const id = randomBytes(6).toString('hex');
-  return { id, nonce: randomBytes(16).toString('hex'), files: canaryFiles(id) };
+  return { id, nonce: randomBytes(16).toString('hex'), files: canaryFiles(id, hiddenFiles) };
 }
 
 // Vitest's JSON reporter output, reduced to the counts the outcome needs and

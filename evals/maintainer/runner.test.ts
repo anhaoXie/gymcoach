@@ -25,6 +25,7 @@ import {
   CANARY_TITLE,
   canaryFiles,
   canaryPaths,
+  canaryTestPaths,
   canaryViolations,
   newCanary,
   isProtected,
@@ -1153,6 +1154,39 @@ describe('the canary', () => {
       expect(setup).toContain(probe);
     expect(files.get(p.test)!.toString()).toContain('process.env.EVAL_CANARY_NONCE');
     expect(files.get(p.test)!.toString()).toContain("check('inside a test')");
+  });
+
+  it('also runs the canary test from every directory that holds a hidden test', () => {
+    expect(canaryTestPaths('abc', ['lib/a.test.ts', 'lib/b.test.ts', 'components/x/c.test.tsx'])).toEqual([
+      'components/x/xabc.test.ts',
+      'lib/xabc.test.ts',
+    ]);
+    expect(canaryTestPaths('abc', ['root.test.ts'])).toEqual([]);
+    const p = canaryPaths('abc');
+    const files = canaryFiles('abc', ['lib/a.test.ts', 'components/x/c.test.tsx']);
+    // Same test as the root one, importing the guard relative to its own place.
+    expect(files.get('lib/xabc.test.ts')!.toString()).toContain(`from '../${p.guard}'`);
+    expect(files.get('components/x/xabc.test.ts')!.toString()).toContain(`from '../../${p.guard}'`);
+    expect(files.get('lib/xabc.test.ts')!.toString()).toContain("check('inside a test')");
+    expect(files.get(p.unitConfig)!.toString()).toContain(
+      `include: ['${p.test}', 'components/x/xabc.test.ts', 'lib/xabc.test.ts']`,
+    );
+    const t = { grader: { hidden: [], preserved: [] } };
+    for (const file of files.keys()) expect(isAgentWritable(file, t), file).toBe(false);
+  });
+
+  it('records every built-in and checks from inside the hidden tests (#468 part a)', () => {
+    const p = canaryPaths('abc');
+    const files = canaryFiles('abc');
+    const guard = files.get(p.guard)!.toString();
+    // ECMAScript globals enumerated from a fresh realm, not listed.
+    expect(guard).toContain("vm.runInNewContext('Object.getOwnPropertyNames(globalThis)')");
+    // chai's config reads become non-configurable accessors that check.
+    expect(guard).toContain("const HOOKS = ['useProxy', 'showDiff', 'includeStack'];");
+    expect(guard).toContain('configurable: false');
+    // The tests' own spies and stubs are tracked through vi.
+    for (const name of ["wrapVi('fn'", "wrapVi('spyOn'", "wrapVi('stubGlobal'"]) expect(guard).toContain(name);
+    expect(files.get(p.setup)!.toString()).toContain('beforeEach(() => startTest());');
   });
 
   it('is protected like the hidden tests (never agent-writable)', () => {
