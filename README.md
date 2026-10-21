@@ -84,6 +84,10 @@ over plain HTTP from another machine needs `SESSION_COOKIE_SECURE=false` (Safari
 may need it even on localhost). Run the `printf` line only once and keep `.env`
 with your backups: it holds the database password.
 
+For reverse proxies, HTTPS on a home network, backups, upgrades and choosing a
+model, see [docs/self-hosting.md](docs/self-hosting.md). Common questions are
+answered in [docs/faq.md](docs/faq.md).
+
 If GymCoach is useful to you, **a ⭐ on the repo is the best way to help other
 lifters find it.**
 
@@ -435,6 +439,8 @@ The simplest path is [Self-host in one minute](#self-host-in-one-minute):
 `docker-compose.selfhost.yml` runs the prebuilt image and applies migrations on
 start. Put it behind a reverse proxy (Nginx, Caddy, Traefik) for HTTPS and set
 `MCP_PUBLIC_URL` to your public URL so MCP connector links point at it.
+Step-by-step proxy examples, backups and upgrades are in
+[docs/self-hosting.md](docs/self-hosting.md).
 
 To build from source instead, `docker-compose.prod.yml` builds the image locally (app + Postgres):
 
