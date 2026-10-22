@@ -27,6 +27,7 @@ started with `docker compose up -d`. The app is published on `GYMCOACH_PORT`
 
   `docker compose up -d` recreates the app with the new binding. The examples
   below assume exactly this.
+
 - **Secrets**: `.env` holds `JWT_SECRET` and the database password. Generate
   both once and keep a copy with your backups. Rotating `JWT_SECRET` keeps the
   data but invalidates every session, so everyone signs in again. Rotating the
@@ -186,13 +187,16 @@ its service name. In your copy of `docker-compose.yml`:
 ```yaml
 services:
   app:
-    networks: [proxy]
-  traefik:            # or cloudflared
+    networks: [default, proxy]
+  traefik: # or cloudflared
     networks: [proxy]
 
 networks:
   proxy:
 ```
+
+`default` stays on the app so it can still resolve `db`; listing only `proxy`
+would drop the default network and the app would crash-loop at startup.
 
 Then point the proxy at `http://app:3000` instead of `http://127.0.0.1:3000`:
 the Traefik server `url` and the cloudflared ingress `service` both take the
@@ -274,8 +278,10 @@ leaves the app unable to connect.
 The in-app export is a different thing: **Settings -> Data -> Export all my
 data (JSON)** writes one account's data (exercises, programs, sessions,
 measurements and so on) to a file, and **Import a backup** in the same section
-loads it back. It is useful for moving one user's history or for keeping a copy
-you can read, but it is not a disaster-recovery backup of the instance.
+loads it back. Import asks for confirmation, then replaces all of the signed-in
+account's data, and cannot be undone. It is useful for moving one user's history
+or for keeping a copy you can read, but it is not a disaster-recovery backup of
+the instance.
 
 ### Restore onto the same host
 
@@ -395,12 +401,12 @@ provider's usage dashboard for the first week.
 
 Set one provider in `.env`:
 
-| `LLM_PROVIDER`        | Key and model variables                                   | Notes                                                                                                                                                              |
-| --------------------- | --------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `anthropic` (default) | `ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL`                    | Defaults to `claude-opus-4-7`. `claude-sonnet-4-6` and `claude-haiku-4-5` trade some coaching quality for lower cost.                                              |
-| `openrouter`          | `OPENROUTER_API_KEY`, `OPENROUTER_MODEL`                  | Any model on OpenRouter, for example `anthropic/claude-sonnet-4.5`. Reasoning models need `OPENROUTER_MAX_TOKENS`, a floor on each call's output budget.           |
-| `codex-lb`            | `CODEX_LB_BASE_URL`, `CODEX_LB_API_KEY`, `CODEX_LB_MODEL` | Any OpenAI Responses-compatible endpoint; include `/v1` in the base URL.                                                                                           |
-| `demo`                | none                                                      | Canned replies. Useful to click through the AI screens without a key.                                                                                              |
+| `LLM_PROVIDER`        | Key and model variables                                   | Notes                                                                                                                                                    |
+| --------------------- | --------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `anthropic` (default) | `ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL`                    | Defaults to `claude-opus-4-7`. `claude-sonnet-4-6` and `claude-haiku-4-5` trade some coaching quality for lower cost.                                    |
+| `openrouter`          | `OPENROUTER_API_KEY`, `OPENROUTER_MODEL`                  | Any model on OpenRouter, for example `anthropic/claude-sonnet-4.5`. Reasoning models need `OPENROUTER_MAX_TOKENS`, a floor on each call's output budget. |
+| `codex-lb`            | `CODEX_LB_BASE_URL`, `CODEX_LB_API_KEY`, `CODEX_LB_MODEL` | Any OpenAI Responses-compatible endpoint; include `/v1` in the base URL.                                                                                 |
+| `demo`                | none                                                      | Canned replies. Useful to click through the AI screens without a key.                                                                                    |
 
 Pricing is provider-side, so check the current tables rather than trusting a
 number in a repository: [Anthropic pricing](https://www.anthropic.com/pricing)
@@ -418,7 +424,7 @@ Two things surprise self-hosters:
   services:
     app:
       extra_hosts:
-        - 'host.docker.internal:host-gateway'
+        - "host.docker.internal:host-gateway"
   ```
 
 - **Compose forwards only what it lists.** The prebuilt `docker-compose.yml`

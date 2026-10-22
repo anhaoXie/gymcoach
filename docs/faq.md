@@ -103,8 +103,10 @@ has copy-paste commands. Keep `.env` separate from archives you share.
 ### Is there a way to export just my account?
 
 Yes. **Settings -> Data -> Export all my data (JSON)** downloads a JSON file
-with that account's data, and **Import a backup** loads it back. It is useful for keeping a readable copy
-or moving one account's history; it is not a replacement for the volume backup.
+with that account's data, and **Import a backup** loads it back. Import asks for
+confirmation, then replaces all of the account's data, and cannot be undone. It
+is useful for keeping a readable copy or moving one account's history; it is not
+a replacement for the volume backup.
 
 ### Can I import from another app?
 
