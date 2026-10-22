@@ -67,12 +67,17 @@ docker compose exec db psql -U gymcoach -d gymcoach -c \
 
 The temporary account can stay; it is only an extra login on the instance.
 Deleting it takes one more step, because the signup seeds an exercise catalog
-for it and a few tables reference the user without a cascade:
+for it and a few tables reference the user without a cascade. For an account
+that only signed up, this is enough:
 
 ```bash
 docker compose exec db psql -U gymcoach -d gymcoach -c \
   "DELETE FROM \"Exercise\" WHERE \"userId\" = (SELECT id FROM \"User\" WHERE email = 'temp@example.com'); DELETE FROM \"User\" WHERE email = 'temp@example.com';"
 ```
+
+If that account already has programs, sessions or coach conversations, delete
+those rows first: `Program`, `Session` and `Conversation` also reference the
+user without a cascade, and Postgres refuses the delete while they exist.
 
 If you have a database backup, restoring it is the alternative.
 
