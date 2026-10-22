@@ -72,10 +72,14 @@ import ts from 'typescript';
 // `.jsx` files parse as TSX, every other script as TS (JavaScript is a subset
 // for this purpose).
 //
-// Limits: a screen, not a proof. A global object obtained some other way
-// (eval, the Function constructor, a constructor chain) is left to the
-// module-system rule; one imported from a module outside the screened files is
-// not followed. The main residual: a non-literal read of an object the screen
+// Limits: a screen, not a proof. A `constructor` read is reported on any
+// receiver (any function's constructor is the Function constructor), except
+// `x.constructor.name` and an equality comparison of the read or the string;
+// a key compared to 'constructor' and then used as a computed index on an
+// untracked object is a case of the computed-read residual. A direct eval or
+// Function call is left to the module-system rule. A global object
+// obtained some other way, or imported from a module outside the screened
+// files, is not followed. The main residual: a non-literal read of an object the screen
 // does not track, stored in a variable and then used (called, read, or passed
 // on): `const h = o[k]; h(fn)`, and any taint path the list below does not
 // name. Only part (a)'s runtime probes and the mandatory diff review of a
@@ -252,6 +256,29 @@ function isDocument(node: ts.Node, aliases: ReadonlySet<string>): boolean {
     return key !== null && DOCUMENT_NAMES.has(key);
   }
   return false;
+}
+
+const EQUALITY = new Set([
+  ts.SyntaxKind.EqualsEqualsEqualsToken,
+  ts.SyntaxKind.ExclamationEqualsEqualsToken,
+  ts.SyntaxKind.EqualsEqualsToken,
+  ts.SyntaxKind.ExclamationEqualsToken,
+]);
+
+// `x.constructor.name` (a read of the name only), or the `constructor` read or
+// string as one side of an equality comparison.
+function constructorOnlyCompared(node: ts.Node): boolean {
+  let value: ts.Node = node;
+  if (ts.isIdentifier(node)) {
+    const p = node.parent;
+    if (!p || !ts.isPropertyAccessExpression(p) || p.name !== node) return false;
+    value = p;
+    const up = p.parent;
+    if (up && ts.isPropertyAccessExpression(up) && up.expression === p && up.name.text === 'name')
+      return !ts.isCallExpression(up.parent) || up.parent.expression !== up;
+  }
+  const up = value.parent;
+  return !!up && ts.isBinaryExpression(up) && EQUALITY.has(up.operatorToken.kind);
 }
 
 // Test hook names flagged as a member, key or string whatever the receiver
@@ -762,6 +789,19 @@ function testGlobalHitsIn(source: ts.SourceFile): Hit[] {
       const bareUse = ts.isIdentifier(node) && isValueReference(node);
       if (!bareUse) hit('test global hook named on any receiver', p ?? node);
     }
+    // `constructor` read as a member, key, destructuring key or string: any
+    // function's constructor is the Function constructor, which builds code
+    // that returns the global object without naming it (`(() => 0).constructor`,
+    // review of #503). A class's own constructor declaration has no name node,
+    // so it is not reported. Two honest shapes are left alone because they
+    // only read or compare: `x.constructor.name`, and a comparison of the read
+    // or of the string (`x.constructor === Y`, `key === 'constructor'`).
+    if (
+      (ts.isIdentifier(node) || ts.isStringLiteralLike(node)) &&
+      node.text === 'constructor' &&
+      !constructorOnlyCompared(node)
+    )
+      hit('constructor read (reaches the Function constructor)', node.parent ?? node);
     if ((ts.isIdentifier(node) || ts.isStringLiteralLike(node)) && REFLECTIVE_NAMES.has(node.text))
       hit('reflective property read (test global reachable)', node.parent ?? node, 'always');
     if (ts.isElementAccessExpression(node) && literalKey(node.argumentExpression) === null) {

@@ -44,6 +44,7 @@ import {
   addedLines,
   agentEnv,
   canaryPaths,
+  canaryTestPaths,
   canaryViolations,
   newCanary,
   assertOutsideRepo,
@@ -60,6 +61,7 @@ import {
   planGrade,
   staleEvalResources,
   sameDependencies,
+  skippedTests,
   summariseVitestReport,
   tamperViolations,
   type Canary,
@@ -521,6 +523,9 @@ async function runTests(
   // The grader-owned wrapper config: the base config plus the canary setup and
   // test (runner.ts canaryFiles). The canary test is always in the file list.
   const paths = canaryPaths(canary.id);
+  // The canary test also runs from each directory of this group's files that
+  // holds a hidden test; every copy must report a pass.
+  const copies = canaryTestPaths(canary.id, group.files).filter((f) => canary.files.has(f));
   const config = group.tier === 'unit' ? paths.unitConfig : paths.integrationConfig;
   const integration = group.tier === 'integration';
   if (integration && !database) throw new Error('integration tier without a database');
@@ -533,7 +538,7 @@ async function runTests(
       integration ? database!.network : 'none',
       integration ? database!.url : null,
       `${VITEST_CLI.join(' ')} run --config "$1" --reporter=json --outputFile="/reports/$2" "\${@:3}"`,
-      [config, reportName, ...group.files, paths.test],
+      [config, reportName, ...group.files, paths.test, ...copies],
       [],
       canary.nonce,
     ),
@@ -548,7 +553,8 @@ async function runTests(
     tier: group.tier,
     files: group.files,
     exitCode: run.status,
-    ...summariseVitestReport(raw, canary.nonce),
+    ...summariseVitestReport(raw, canary.nonce, 1 + copies.length),
+    skipped: skippedTests(raw),
   };
 }
 
@@ -1273,7 +1279,7 @@ async function main(argv: string[]): Promise<number> {
   let violations: string[] = [];
   let changes: ReturnType<typeof readChanges> = [];
   // This run's canary: file names and nonce never seen by the agent.
-  const canary: Canary = newCanary();
+  const canary: Canary = newCanary(task.grader.hidden);
 
   try {
     let t = Date.now();

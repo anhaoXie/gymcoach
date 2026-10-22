@@ -25,6 +25,7 @@ import {
   CANARY_TITLE,
   canaryFiles,
   canaryPaths,
+  canaryTestPaths,
   canaryViolations,
   newCanary,
   isProtected,
@@ -34,6 +35,7 @@ import {
   VITEST_CLI,
   sameDependencies,
   staleEvalResources,
+  skippedTests,
   summariseVitestReport,
   tamperViolations,
   PAID_AGENT_DISABLED_REASON,
@@ -826,6 +828,53 @@ describe('tamperViolations', () => {
       }
     }
   });
+
+  // Chained forms (it.fails), a skip from the context, and the options
+  // object vitest also accepts (it('x', { fails: true }, fn)).
+  const declared =
+    /\b(?:it|test|describe|suite)\s*\.\s*(?:skip|todo|fails|only|skipIf|runIf)\b|\bskip\s*\(|\b(?:retry|repeats)\s*:|\baround(?:Each|All)\b|\b(?:it|test|describe|suite)\s*\([^)]*?\{[^}]*\b(?:fails|skip|todo|only)\s*:/;
+
+  it('recognises every way a graded test can declare a skip, todo, fails, only or retry', () => {
+    for (const decl of [
+      "it.fails('x', fn);",
+      "test.skip('x', fn);",
+      "describe.only('x', fn);",
+      "it.skipIf(c)('x', fn);",
+      "it('x', { fails: true }, fn);",
+      "test('x', { skip: true }, fn);",
+      "it('x', { todo: true }, fn);",
+      "it('x', { retry: 2 }, fn);",
+      "it('x', ({ skip }) => skip());",
+      'context.skip();',
+      'repeats: 3,',
+      'aroundEach(async (run) => run());',
+    ])
+      expect(declared.test(decl), decl).toBe(true);
+    for (const plain of [
+      "it('adds', () => {\n  expect(add(1, 1)).toBe(2);\n});",
+      '// Write tools are no longer program-only: the rule must name every domain.',
+      "const opts = { skip: 0 };",
+    ])
+      expect(declared.test(plain), plain).toBe(false);
+  });
+
+  // Grading counts a skipped or todo test as a fail and the canary fixes each
+  // test's fails, retry and repeats flags to what it declares (runner.ts
+  // guardTask, review of #503): that holds only if the graded tests declare
+  // none of them, so a skip, a fails flip or a retry in a report can only come
+  // from code under test.
+  it.runIf(historyAvailable)('grades only tests that declare no skip, todo, fails, only or retry', () => {
+    for (const t of committed) {
+      const graded: [string, string][] = [
+        ...t.grader.hidden.map((f): [string, string] => [t.snapshot.fixSha, f]),
+        ...t.grader.preserved.map((f): [string, string] => [t.snapshot.baseSha, f]),
+      ];
+      for (const [sha, file] of graded) {
+        const content = execFileSync('git', ['show', `${sha}:${file}`], { cwd: __dirname }).toString();
+        expect(declared.test(content), `${t.id} ${file}`).toBe(false);
+      }
+    }
+  });
 });
 
 describe('the agent-writable allowlist', () => {
@@ -1155,6 +1204,57 @@ describe('the canary', () => {
     expect(files.get(p.test)!.toString()).toContain("check('inside a test')");
   });
 
+  it('requires a passing canary result from every copy of the canary test', () => {
+    const nonce = 'a'.repeat(32);
+    const title = `${CANARY_TITLE} ${nonce}`;
+    const report = (...statuses: string[]) =>
+      JSON.stringify({
+        numPassedTests: statuses.length,
+        numFailedTests: 0,
+        numFailedTestSuites: 0,
+        testResults: statuses.map((status) => ({
+          assertionResults: [{ title, status, failureMessages: [] }],
+        })),
+      });
+    expect(summariseVitestReport(report('passed', 'passed'), nonce, 2).canary).toBe('ok');
+    expect(summariseVitestReport(report('passed'), nonce, 2).canary).toBe('missing');
+    expect(summariseVitestReport(report('passed', 'failed'), nonce, 2).canary).toBe('failed');
+    expect(summariseVitestReport(report('passed'), nonce).canary).toBe('ok');
+  });
+
+  it('also runs the canary test from every directory that holds a hidden test', () => {
+    expect(canaryTestPaths('abc', ['lib/a.test.ts', 'lib/b.test.ts', 'components/x/c.test.tsx'])).toEqual([
+      'components/x/xabc.test.ts',
+      'lib/xabc.test.ts',
+    ]);
+    expect(canaryTestPaths('abc', ['root.test.ts'])).toEqual([]);
+    const p = canaryPaths('abc');
+    const files = canaryFiles('abc', ['lib/a.test.ts', 'components/x/c.test.tsx']);
+    // Same test as the root one, importing the guard relative to its own place.
+    expect(files.get('lib/xabc.test.ts')!.toString()).toContain(`from '../${p.guard}'`);
+    expect(files.get('components/x/xabc.test.ts')!.toString()).toContain(`from '../../${p.guard}'`);
+    expect(files.get('lib/xabc.test.ts')!.toString()).toContain("check('inside a test')");
+    expect(files.get(p.unitConfig)!.toString()).toContain(
+      `include: ['${p.test}', 'components/x/xabc.test.ts', 'lib/xabc.test.ts']`,
+    );
+    const t = { grader: { hidden: [], preserved: [] } };
+    for (const file of files.keys()) expect(isAgentWritable(file, t), file).toBe(false);
+  });
+
+  it('records every built-in and checks from inside the hidden tests (#468 part a)', () => {
+    const p = canaryPaths('abc');
+    const files = canaryFiles('abc');
+    const guard = files.get(p.guard)!.toString();
+    // ECMAScript globals enumerated from a fresh realm, not listed.
+    expect(guard).toContain("vm.runInNewContext('Object.getOwnPropertyNames(globalThis)')");
+    // chai's config reads become non-configurable accessors that check.
+    expect(guard).toContain("const HOOKS = ['useProxy', 'showDiff', 'includeStack'];");
+    expect(guard).toContain('configurable: false');
+    // The tests' own spies and stubs are tracked through vi.
+    for (const name of ["wrapVi('fn'", "wrapVi('spyOn'", "wrapVi('stubGlobal'"]) expect(guard).toContain(name);
+    expect(files.get(p.setup)!.toString()).toContain('beforeEach(() => startTest());');
+  });
+
   it('is protected like the hidden tests (never agent-writable)', () => {
     const t = { grader: { hidden: [], preserved: [] } };
     for (const file of canaryFiles('abc').keys())
@@ -1176,7 +1276,32 @@ describe('the canary', () => {
   });
 });
 
+describe('skippedTests', () => {
+  it('adds pending and todo counts, or returns null for a missing or unreadable report', () => {
+    expect(skippedTests(JSON.stringify({ numPendingTests: 1, numTodoTests: 2 }))).toBe(3);
+    expect(skippedTests(JSON.stringify({ numPendingTests: 0, numTodoTests: 0 }))).toBe(0);
+    expect(skippedTests(JSON.stringify({ numPendingTests: 1 }))).toBeNull();
+    expect(skippedTests('{not json')).toBeNull();
+    expect(skippedTests(null)).toBeNull();
+  });
+});
+
 describe('decideOutcome', () => {
+  it('fails a run with a skipped or todo test and treats an unknown count as unreadable', () => {
+    expect(
+      decideOutcome({ hidden: [run({ skipped: 1 })], preserved: [run()], infraErrors: [] }),
+    ).toBe('fail');
+    expect(
+      decideOutcome({ hidden: [run()], preserved: [run({ skipped: 2 })], infraErrors: [] }),
+    ).toBe('fail');
+    expect(
+      decideOutcome({ hidden: [run({ skipped: null })], preserved: [run()], infraErrors: [] }),
+    ).toBe('infra-error');
+    expect(
+      decideOutcome({ hidden: [run({ skipped: 0 })], preserved: [run()], infraErrors: [] }),
+    ).toBe('pass');
+  });
+
   it('fails a run whose canary failed or is missing, even when every test passed', () => {
     for (const canary of ['failed', 'missing'] as const)
       expect(

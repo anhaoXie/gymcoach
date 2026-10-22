@@ -23,5 +23,5 @@ specifier's cooked text (`'vit\x65st'`). Part (b) of the known canary bypasses
 is screened, not closed: a global object obtained in a form the screen does
 not name or imported from a module it does not read, and a non-literal read of
 an object the screen does not track, stored in a variable and then used, stay
-open (only part (a)'s runtime probes and the diff review of paid runs backstop
-them); part (a) is open and the paid agent stays disabled (#468).
+open (only the canary's runtime checks of part (a) and the diff review of paid
+runs backstop them); the paid agent stays disabled (#468).
