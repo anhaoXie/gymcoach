@@ -20,7 +20,10 @@ Compose. Node 20+ is only needed to build from source or to run the tests.
 ### Can I change the port?
 
 Yes. Set `GYMCOACH_PORT=8080` in `.env` and run `docker compose up -d`. The
-container port stays `3000`; only the host side changes.
+container port stays `3000`; only the host side changes. The value is the whole
+publish spec, so `GYMCOACH_PORT=127.0.0.1:8080` binds loopback only, which is
+what you want once a proxy handles the traffic: publishing on all interfaces
+lets Docker bypass `ufw` and answer on the LAN.
 
 ### Can I serve it under a subpath, like example.com/gym?
 
@@ -52,7 +55,8 @@ rate-limited to 5 attempts per minute per IP.
 
 There is no switch for it yet. To keep an instance private, keep it on a VPN
 (Tailscale or WireGuard) or add an IP allowlist in the reverse proxy. Both are
-described in [docs/self-hosting.md](self-hosting.md#https-on-a-home-network).
+described in
+[keeping an instance private](self-hosting.md#keeping-an-instance-private).
 
 ### I forgot my password. Is there a reset flow?
 
@@ -105,9 +109,12 @@ or moving one account's history; it is not a replacement for the volume backup.
 ### Can I import from another app?
 
 The **Import training history** section of Settings accepts Hevy and Strong
-exports, and cardio files (FIT, GPX, TCX) in the cardio part. Full GymCoach JSON
-backups go through **Settings -> Data -> Import a backup**. Each screen previews
-the file before anything is written.
+exports, and cardio files (FIT, GPX, TCX) in the cardio part; it parses and
+previews the file before writing anything. **Import a backup** is a different
+path: it asks for confirmation, then replaces all of the signed-in account's
+data (programs, sessions, sets, goals, bodyweight history, check-ins and coach
+conversations) with the file. That cannot be undone, and there is no preview, so
+export first if you are unsure.
 
 ### I restored the database but my progress photos are gone. Why?
 
@@ -127,24 +134,32 @@ or the tunnel at the new machine once the login page answers locally.
 ### Do I need an API key?
 
 No. Without a key GymCoach is a plain tracker; the coach screens say that no
-provider is configured. Add a key to turn on the weekly debrief, the chat and
-program generation.
+provider is configured. Add a key to turn on the weekly debrief, the chat,
+program generation and the free-text set parser.
 
 ### Can I use a local model?
 
 Only if your server exposes the OpenAI Responses API, which `LLM_PROVIDER=codex-lb`
 speaks (`CODEX_LB_BASE_URL`, include `/v1`). A server that only offers the older
-Chat Completions API will not work. The `demo` provider gives canned answers
-with no key and is the quickest way to try the AI screens.
+Chat Completions API will not work. If the server runs on the same machine as the
+container, point the base URL at `http://host.docker.internal:8317/v1`: inside the
+container, `localhost` is the container itself (on Linux, add
+`extra_hosts: ['host.docker.internal:host-gateway']` to the app service). The
+prebuilt compose file does not forward `CODEX_LB_*` yet either, so add those to
+the app service's `environment`; see
+[choose a model](self-hosting.md#choose-a-model-for-the-ai-coach). The `demo`
+provider gives canned answers with no key and is the quickest way to try the AI
+screens.
 
 ### What does the coach cost to run?
 
 Your provider bills per token; there are no numbers in the repository because
 prices change. The chat reply is the biggest single cost (up to 4096 output
-tokens per reply), and the weekly debrief plus program generation follow. Pick a
-smaller model for daily use, or use `LLM_PROVIDER=demo` to click through without
-spending. GymCoach has no built-in spend cap, so watch the provider dashboard.
-See [choose a model](self-hosting.md#choose-a-model-for-the-ai-coach).
+tokens per reply); the weekly debrief, program generation and the free-text set
+parser follow. Use a smaller model if the bill matters, or `LLM_PROVIDER=demo` to
+click through without spending. GymCoach has no built-in spend cap, so watch the
+provider dashboard. See
+[choose a model](self-hosting.md#choose-a-model-for-the-ai-coach).
 
 ### Does it work offline?
 

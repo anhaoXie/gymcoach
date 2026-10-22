@@ -7,18 +7,31 @@ coach. [docs/faq.md](faq.md) answers the questions that come up most often.
 
 The commands below assume the [one-minute setup](../README.md#self-host-in-one-minute):
 a directory (called `gymcoach` here) that holds `docker-compose.yml` and `.env`,
-started with `docker compose up -d`. The container listens on the host port
-`GYMCOACH_PORT` (default `3000`) and speaks plain HTTP; TLS belongs in the proxy
-in front of it.
+started with `docker compose up -d`. The app is published on `GYMCOACH_PORT`
+(default `3000`) and speaks plain HTTP; TLS belongs in the proxy in front of it.
 
 ## Before you expose it
 
 - **Architecture**: the published image is `linux/amd64` only. ARM hosts and
   Raspberry Pis are tracked in [#411](https://github.com/gymcoach-app/gymcoach/issues/411).
+- **Ports**: `docker-compose.yml` publishes `${GYMCOACH_PORT:-3000}:3000`, which
+  binds every interface, and Docker's own NAT rules run ahead of `ufw` or
+  `firewalld`, so the plain-HTTP port answers on the LAN even when the firewall
+  looks closed. Once a proxy handles the traffic, publish the port on loopback
+  only:
+
+  ```bash
+  # .env
+  GYMCOACH_PORT=127.0.0.1:3000
+  ```
+
+  `docker compose up -d` recreates the app with the new binding. The examples
+  below assume exactly this.
 - **Secrets**: `.env` holds `JWT_SECRET` and the database password. Generate
-  both once, never rotate them by rewriting the file (a new database password
-  locks the app out of the existing database), and keep a copy with your
-  backups.
+  both once and keep a copy with your backups. Rotating `JWT_SECRET` keeps the
+  data but invalidates every session, so everyone signs in again. Rotating the
+  database password in `.env` alone locks the app out of the existing data:
+  change it inside Postgres too (`ALTER USER gymcoach WITH PASSWORD '...'`).
 - **Accounts**: the signup page is public (rate-limited to 5 attempts per
   minute per IP). Each account has its own data; there is no admin role. If the
   instance should be for a known group only, keep it on a VPN or put an IP
@@ -26,11 +39,35 @@ in front of it.
 - **Disk**: the database and the progress photos grow with use. Both live in
   Docker volumes, so the disk that holds `/var/lib/docker` is the one to watch.
 
+### Keeping an instance private
+
+The signup page has no off switch, so a private instance is a network decision.
+Two controls work today:
+
+- **VPN**: keep the host on Tailscale or WireGuard and reach it over the tunnel.
+  Tailscale also gives you HTTPS on the tailnet (see
+  [HTTPS on a home network](#https-on-a-home-network)). Keep the published port
+  on loopback as well, or devices on the LAN can still reach the app directly
+  instead of through the tunnel.
+- **Proxy allowlist**: let only known networks through. In the nginx example
+  below, inside `location /` before `proxy_pass`:
+
+  ```nginx
+  allow 192.168.1.0/24;   # your LAN
+  allow 100.64.0.0/10;    # Tailscale
+  deny all;
+  ```
+
+  Caddy has the same with a `remote_ip` matcher, Traefik with an `ipAllowList`
+  middleware. Anything the proxy rejects never reaches the app.
+
 ## Put it behind a reverse proxy
 
-All four examples below proxy to the app on the host at `127.0.0.1:3000`
-(change the port if you set `GYMCOACH_PORT`). Two settings belong in `.env`
-once a domain points at the instance:
+All four examples below proxy to the app on the host at `127.0.0.1:3000`; bind
+the port to loopback first, as shown in
+[Before you expose it](#before-you-expose-it), and change the port number if you
+published another one. Two settings belong in `.env` once a domain points at the
+instance:
 
 ```bash
 # Public HTTPS origin, used when GymCoach builds ChatGPT connector URLs.
@@ -73,15 +110,18 @@ server {
     ssl_certificate     /etc/letsencrypt/live/gym.example.com/fullchain.pem;
     ssl_certificate_key /etc/letsencrypt/live/gym.example.com/privkey.pem;
 
-    # Progress photos are uploaded through the app.
-    client_max_body_size 25m;
+    # The JSON backup import caps at 50 MB; keep this at or above it.
+    client_max_body_size 50m;
 
     location / {
         proxy_pass http://127.0.0.1:3000;
         proxy_http_version 1.1;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        # Not $proxy_add_x_forwarded_for: that appends to a client-supplied
+        # header, and the app reads the leftmost address, so a client could
+        # choose its own IP and slip past the rate limiter.
+        proxy_set_header X-Forwarded-For $remote_addr;
         proxy_set_header X-Forwarded-Proto $scheme;
 
         # The coach chat streams its reply; buffering would hold it back.
@@ -138,6 +178,26 @@ Then `cloudflared tunnel run gymcoach`, or install the service with
 timeout and a 100 MB upload limit on the free plan, both far above what the app
 produces.
 
+The four examples above assume the proxy runs on the host. A proxy that runs as
+a container cannot reach `127.0.0.1:3000`, because that address is the proxy
+container itself: put both services on one Docker network and address the app by
+its service name. In your copy of `docker-compose.yml`:
+
+```yaml
+services:
+  app:
+    networks: [proxy]
+  traefik:            # or cloudflared
+    networks: [proxy]
+
+networks:
+  proxy:
+```
+
+Then point the proxy at `http://app:3000` instead of `http://127.0.0.1:3000`:
+the Traefik server `url` and the cloudflared ingress `service` both take the
+service name.
+
 In every case, confirm the proxied URL serves the login page and that
 `https://gym.example.com/login` is reachable from a phone before creating the
 first account through the domain.
@@ -152,10 +212,12 @@ workable paths, in rough order of effort:
    stay on the LAN if the router forwards 80/443 or a tunnel is used.
 2. **Cloudflare Tunnel**: no port forwarding, certificate handled by Cloudflare.
    See the section above.
-3. **Tailscale**: install Tailscale on the host and run `tailscale serve --bg 3000`.
-   Tailscale terminates HTTPS with a certificate for your tailnet name, so the
-   app is reachable only on the tailnet. No DNS record or port forwarding is
-   needed.
+3. **Tailscale**: enable HTTPS certificates and MagicDNS for the tailnet first
+   (the DNS page of the admin console), then install Tailscale on the host and
+   run `tailscale serve --bg 3000`. Tailscale terminates HTTPS with a
+   certificate for your tailnet name; keep the published port on loopback (as in
+   [Before you expose it](#before-you-expose-it)) so the tunnel is the only way
+   in. No DNS record or port forwarding is needed.
 4. **Local certificate authority** (`mkcert` or an internal CA): Caddy or nginx
    serves a certificate signed by that CA. Every device that should open the app
    needs the CA root installed. This keeps the instance entirely offline, and
@@ -186,6 +248,7 @@ A backup is three things: the database dump, the uploads archive, and `.env`.
 
 ```bash
 cd ~/gymcoach
+umask 077          # dumps and env.bak stay readable by this user only
 day=$(date +%F)
 mkdir -p "backups/$day"
 
@@ -193,11 +256,12 @@ mkdir -p "backups/$day"
 docker compose exec -T db pg_dump -U gymcoach -d gymcoach \
   --clean --if-exists > "backups/$day/gymcoach.sql"
 
-# 2. Progress photos (the volume is <project>_uploads)
+# 2. Progress photos (the volume is <project>_uploads). Reuse the pinned
+#    Postgres image instead of a floating `alpine` tag.
 docker run --rm \
   -v "gymcoach_uploads:/data:ro" \
   -v "$PWD/backups/$day:/backup" \
-  alpine tar czf /backup/uploads.tar.gz -C /data .
+  postgres:16-alpine tar czf /backup/uploads.tar.gz -C /data .
 
 # 3. The secrets
 cp .env "backups/$day/env.bak"
@@ -222,16 +286,21 @@ cd ~/gymcoach
 day=2026-10-22   # the folder you want to restore
 
 docker compose down
-
-# Recreate the database and load the dump (it drops existing objects first).
 docker compose up -d db
-cat "backups/$day/gymcoach.sql" | docker compose exec -T db psql -U gymcoach -d gymcoach
+
+# Wipe the schema first. The dump carries --clean, but against a database that
+# already holds tables from a newer image psql can collide halfway through and,
+# without ON_ERROR_STOP, keep going and leave a half-restored database.
+docker compose exec -T db psql -U gymcoach -d gymcoach \
+  -c 'DROP SCHEMA public CASCADE; CREATE SCHEMA public;'
+docker compose exec -T db psql -U gymcoach -d gymcoach -v ON_ERROR_STOP=1 \
+  < "backups/$day/gymcoach.sql"
 
 # Walk the photos back into the volume.
 docker run --rm \
   -v "gymcoach_uploads:/data" \
   -v "$PWD/backups/$day:/backup" \
-  alpine sh -c "cd /data && tar xzf /backup/uploads.tar.gz"
+  postgres:16-alpine sh -c "cd /data && tar xzf /backup/uploads.tar.gz"
 
 # Restore the matching .env, then start the app.
 cp "backups/$day/env.bak" .env
@@ -251,14 +320,21 @@ cd ~/gymcoach
 day=2026-10-22
 
 cp "backups/$day/env.bak" .env
+
+# Create the project and both named volumes before touching the database, so
+# compose owns the volumes the restore writes into.
+docker compose up --no-start
 docker compose up -d db
 
-# The app's volumes are created by compose; load both.
-cat "backups/$day/gymcoach.sql" | docker compose exec -T db psql -U gymcoach -d gymcoach
+docker compose exec -T db psql -U gymcoach -d gymcoach \
+  -c 'DROP SCHEMA public CASCADE; CREATE SCHEMA public;'
+docker compose exec -T db psql -U gymcoach -d gymcoach -v ON_ERROR_STOP=1 \
+  < "backups/$day/gymcoach.sql"
+
 docker run --rm \
   -v "gymcoach_uploads:/data" \
   -v "$PWD/backups/$day:/backup" \
-  alpine sh -c "cd /data && tar xzf /backup/uploads.tar.gz"
+  postgres:16-alpine sh -c "cd /data && tar xzf /backup/uploads.tar.gz"
 
 docker compose up -d
 ```
@@ -288,9 +364,9 @@ and sign in. If the app crash-loops, read the log:
 docker compose logs --tail=100 app
 ```
 
-`latest` follows `main`. Every commit that passes CI also publishes an
-immutable `sha-<short>` tag, which is what to pin for a deployment you do not
-want to move under you:
+`latest` follows `main`. Every `main` commit whose CI run passes also publishes
+an immutable `sha-<short>` tag (a red CI run reaches neither tag), which is what
+to pin for a deployment you do not want to move under you:
 
 ```yaml
 # docker-compose.yml, app service
@@ -310,10 +386,11 @@ images no longer receive updates.
 ## Choose a model for the AI coach
 
 Without a key GymCoach is a plain tracker: the coach, the chat and program
-generation say that no provider is configured. With a key, three surfaces call
+generation say that no provider is configured. With a key, four surfaces call
 the model: the weekly debrief, the chat (streamed, up to 4096 output tokens per
-reply) and program generation. Your provider bills those calls at its own
-per-token prices, and GymCoach has no built-in spend cap, so watch the
+reply), program generation, and the free-text set parser that turns a typed line
+into a structured strength or cardio set. Your provider bills those calls at its
+own per-token prices, and GymCoach has no built-in spend cap, so watch the
 provider's usage dashboard for the first week.
 
 Set one provider in `.env`:
@@ -321,7 +398,7 @@ Set one provider in `.env`:
 | `LLM_PROVIDER`        | Key and model variables                                   | Notes                                                                                                                                                              |
 | --------------------- | --------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `anthropic` (default) | `ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL`                    | Defaults to `claude-opus-4-7`. `claude-sonnet-4-6` and `claude-haiku-4-5` trade some coaching quality for lower cost.                                              |
-| `openrouter`          | `OPENROUTER_API_KEY`, `OPENROUTER_MODEL`                  | Any model on OpenRouter, for example `anthropic/claude-sonnet-4.5`. Reasoning models also need `OPENROUTER_MAX_TOKENS` (their thinking counts against the budget). |
+| `openrouter`          | `OPENROUTER_API_KEY`, `OPENROUTER_MODEL`                  | Any model on OpenRouter, for example `anthropic/claude-sonnet-4.5`. Reasoning models need `OPENROUTER_MAX_TOKENS`, a floor on each call's output budget.           |
 | `codex-lb`            | `CODEX_LB_BASE_URL`, `CODEX_LB_API_KEY`, `CODEX_LB_MODEL` | Any OpenAI Responses-compatible endpoint; include `/v1` in the base URL.                                                                                           |
 | `demo`                | none                                                      | Canned replies. Useful to click through the AI screens without a key.                                                                                              |
 
@@ -330,12 +407,34 @@ number in a repository: [Anthropic pricing](https://www.anthropic.com/pricing)
 and [OpenRouter models](https://openrouter.ai/models) (each model page lists its
 input and output price).
 
+Two things surprise self-hosters:
+
+- **`localhost` inside the container is the container.** A model server on the
+  host is reachable at `http://host.docker.internal:8317/v1`, not at
+  `http://127.0.0.1:8317/v1`. On Linux that name only resolves once the app
+  service declares it:
+
+  ```yaml
+  services:
+    app:
+      extra_hosts:
+        - 'host.docker.internal:host-gateway'
+  ```
+
+- **Not every variable reaches the container.** The prebuilt
+  `docker-compose.yml` from the one-minute setup passes only the variables it
+  lists in the `app` service's `environment`; `OPENROUTER_MAX_TOKENS` and
+  `CODEX_LB_*` are not among them, and `docker-compose.prod.yml` forwards
+  `CODEX_LB_*` but not `OPENROUTER_MAX_TOKENS`. Writing them in `.env` has no
+  effect until they are added to that `environment` block.
+
 Practical cost levers, cheapest first:
 
 - Leave the key unset and use the tracker. Everything except the coach works.
-- Use a smaller model for daily chat (`claude-haiku-4-5`,
-  `anthropic/claude-haiku-4.5` on OpenRouter) and keep the expensive one for
-  the weekly debrief, or accept the default and try it for a week.
+- Use a smaller model if the bill matters (`claude-haiku-4-5`,
+  `anthropic/claude-haiku-4.5` on OpenRouter) and accept a little less coaching
+  quality; try the default for a week first. There is one model setting per
+  provider, not one per screen, so this choice is all or nothing.
 - Chat output dominates the bill: a reply costs its output tokens, and the
   system prompt carries the recent training data. Long conversations are more
   expensive than many short ones.
