@@ -421,12 +421,10 @@ Two things surprise self-hosters:
         - 'host.docker.internal:host-gateway'
   ```
 
-- **Not every variable reaches the container.** The prebuilt
-  `docker-compose.yml` from the one-minute setup passes only the variables it
-  lists in the `app` service's `environment`; `OPENROUTER_MAX_TOKENS` and
-  `CODEX_LB_*` are not among them, and `docker-compose.prod.yml` forwards
-  `CODEX_LB_*` but not `OPENROUTER_MAX_TOKENS`. Writing them in `.env` has no
-  effect until they are added to that `environment` block.
+- **Compose forwards only what it lists.** The prebuilt `docker-compose.yml`
+  from the one-minute setup only forwards the variables listed in the `app`
+  service's `environment`; a `.env` entry alone does not reach the container.
+  Add any variable from the table above there if it is missing from that block.
 
 Practical cost levers, cheapest first:
 

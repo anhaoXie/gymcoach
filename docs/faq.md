@@ -145,8 +145,8 @@ Chat Completions API will not work. If the server runs on the same machine as th
 container, point the base URL at `http://host.docker.internal:8317/v1`: inside the
 container, `localhost` is the container itself (on Linux, add
 `extra_hosts: ['host.docker.internal:host-gateway']` to the app service). The
-prebuilt compose file does not forward `CODEX_LB_*` yet either, so add those to
-the app service's `environment`; see
+prebuilt compose file forwards only the variables listed in the app service's
+`environment`, so add `CODEX_LB_*` there if they are missing; see
 [choose a model](self-hosting.md#choose-a-model-for-the-ai-coach). The `demo`
 provider gives canned answers with no key and is the quickest way to try the AI
 screens.
